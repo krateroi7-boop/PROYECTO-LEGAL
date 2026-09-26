@@ -1,0 +1,2 @@
+ALTER TABLE "norm_versions" ADD CONSTRAINT "norm_versions_source_document_id_source_documents_id_fk" FOREIGN KEY ("source_document_id") REFERENCES "public"."source_documents"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+CREATE UNIQUE INDEX "import_batches_checksum_idx" ON "import_batches" USING btree ("checksum");

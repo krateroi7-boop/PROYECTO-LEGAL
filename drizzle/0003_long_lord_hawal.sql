@@ -1,0 +1,4 @@
+DROP INDEX "audit_logs_entity_idx";--> statement-breakpoint
+ALTER TABLE "norm_nodes" ADD CONSTRAINT "norm_nodes_parent_id_norm_nodes_id_fk" FOREIGN KEY ("parent_id") REFERENCES "public"."norm_nodes"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "import_validations" ADD CONSTRAINT "import_validations_batch_id_import_batches_id_fk" FOREIGN KEY ("batch_id") REFERENCES "public"."import_batches"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "audit_logs_entity_idx" ON "audit_logs" USING btree ("entity_type","entity_id","created_at");

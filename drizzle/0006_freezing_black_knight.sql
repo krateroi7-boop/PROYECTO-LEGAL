@@ -1,0 +1,8 @@
+CREATE UNIQUE INDEX "norm_versions_one_current_idx" ON "norm_versions" USING btree ("norm_id") WHERE "norm_versions"."is_current" = true;--> statement-breakpoint
+ALTER TABLE "norm_nodes" ADD CONSTRAINT "norm_nodes_parent_self_check" CHECK ("norm_nodes"."parent_id" is null or "norm_nodes"."parent_id" <> "norm_nodes"."id");--> statement-breakpoint
+ALTER TABLE "norm_versions" ADD CONSTRAINT "norm_versions_valid_range_check" CHECK ("norm_versions"."valid_to" is null or "norm_versions"."valid_to" >= "norm_versions"."valid_from");--> statement-breakpoint
+ALTER TABLE "legal_relations" ADD CONSTRAINT "legal_relations_no_self_check" CHECK ("legal_relations"."source_norm_id" <> "legal_relations"."target_norm_id");--> statement-breakpoint
+ALTER TABLE "search_documents" ADD CONSTRAINT "search_documents_shape_check" CHECK (("search_documents"."document_type" = 'norm' and "search_documents"."node_id" is null) or ("search_documents"."document_type" = 'node' and "search_documents"."node_id" is not null));--> statement-breakpoint
+ALTER TABLE "annotations" ADD CONSTRAINT "annotations_target_shape_check" CHECK ("annotations"."version_id" is not null or "annotations"."node_id" is null);--> statement-breakpoint
+ALTER TABLE "annotations" ADD CONSTRAINT "annotations_content_length_check" CHECK (char_length("annotations"."content") between 1 and 10000);--> statement-breakpoint
+ALTER TABLE "favorites" ADD CONSTRAINT "favorites_target_shape_check" CHECK ("favorites"."version_id" is not null or "favorites"."node_id" is null);
