@@ -1,0 +1,22 @@
+{
+  "html": [
+    {
+      "t": "<div><div class=\"p\">Texto introductorio de la norma.</div></div>",
+      "i": 100
+    },
+    {
+      "t": "<div><div class=\"p\">CAPÍTULO I</div></div>",
+      "h": [
+        {
+          "t": "<div><div class=\"p\">Artículo 1°. Ámbito de aplicación. La presente ley establece sus bases.</div><div class=\"p\">El segundo inciso mantiene la estructura jurídica.</div></div>",
+          "i": 101,
+          "v": ["MODIFICACION"]
+        },
+        {
+          "t": "<div><div class=\"p\">Artículo 2°. Definiciones. Para estos efectos se entenderá por norma el texto vigente.</div></div>",
+          "i": 102
+        }
+      ]
+    }
+  ]
+}
