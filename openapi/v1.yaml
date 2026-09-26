@@ -1,0 +1,195 @@
+openapi: 3.0.3
+info:
+  title: Legisdata API
+  version: 1.0.0
+  description: API pública de solo lectura para legislación estructurada y versionada.
+servers:
+  - url: https://example.com
+tags:
+  - name: Normas
+  - name: Búsqueda
+paths:
+  /api/v1/normas:
+    get:
+      tags: [Normas]
+      summary: Lista normas publicadas
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Lista paginada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+        '503':
+          $ref: '#/components/responses/DatabaseUnavailable'
+  /api/v1/normas/{slug}:
+    get:
+      tags: [Normas]
+      summary: Obtiene una norma y su versión vigente
+      parameters:
+        - $ref: '#/components/parameters/Slug'
+      responses:
+        '200':
+          description: Norma estructurada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+        '304':
+          description: La representación no ha cambiado
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/normas/{slug}/articulos/{stableKey}:
+    get:
+      tags: [Normas]
+      summary: Obtiene un nodo jurídico de la versión vigente
+      parameters:
+        - $ref: '#/components/parameters/Slug'
+        - $ref: '#/components/parameters/StableKey'
+      responses:
+        '200':
+          description: Nodo jurídico
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+        '304':
+          description: La representación no ha cambiado
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/normas/{slug}/versiones:
+    get:
+      tags: [Normas]
+      summary: Lista versiones de una norma
+      parameters:
+        - $ref: '#/components/parameters/Slug'
+      responses:
+        '200':
+          description: Versiones
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+  /api/v1/normas/{slug}/versiones/{versionId}:
+    get:
+      tags: [Normas]
+      summary: Obtiene una versión histórica específica
+      parameters:
+        - $ref: '#/components/parameters/Slug'
+        - in: path
+          name: versionId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Versión estructurada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/normas/{slug}/relaciones:
+    get:
+      tags: [Normas]
+      summary: Lista relaciones verificadas de una norma
+      parameters:
+        - $ref: '#/components/parameters/Slug'
+      responses:
+        '200':
+          description: Relaciones
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+  /api/v1/buscar:
+    get:
+      tags: [Búsqueda]
+      summary: Busca en el corpus publicado
+      parameters:
+        - in: query
+          name: q
+          schema: { type: string, maxLength: 500 }
+        - in: query
+          name: number
+          schema: { type: string, maxLength: 100 }
+        - in: query
+          name: article
+          schema: { type: string, maxLength: 200 }
+        - in: query
+          name: type
+          schema: { type: string, maxLength: 100 }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Resultados
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+components:
+  headers:
+    ETag:
+      description: Identificador de la representación para cache condicional.
+      schema: { type: string }
+  parameters:
+    Slug:
+      in: path
+      name: slug
+      required: true
+      schema: { type: string, pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$' }
+    StableKey:
+      in: path
+      name: stableKey
+      required: true
+      schema: { type: string, pattern: '^[a-zA-Z0-9._-]+$' }
+    Page:
+      in: query
+      name: page
+      schema: { type: integer, minimum: 1, default: 1 }
+    Limit:
+      in: query
+      name: limit
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+  responses:
+    NotFound:
+      description: Recurso inexistente
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    DatabaseUnavailable:
+      description: Persistencia no disponible
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+  schemas:
+    Envelope:
+      type: object
+      required: [data, meta]
+      properties:
+        data: {}
+        meta:
+          type: object
+          properties:
+            requestId: { type: string }
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            requestId: { type: string }
