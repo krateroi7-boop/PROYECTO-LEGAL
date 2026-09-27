@@ -1,5 +1,6 @@
 import { getLaw } from "@/lib/legislation";
 import type { LawVersion } from "@/domain/versioning/types";
+import { getPersistedLawVersion, listPersistedLawVersions } from "@/db/repositories/laws";
 
 const current = getLaw("ley-19880")!;
 const historical: LawVersion = {
@@ -30,14 +31,17 @@ const versions: Record<string, LawVersion[]> = {
   "ley-19880": [historical, currentVersion],
 };
 
-export function getVersions(slug: string) {
+export async function getVersions(slug: string): Promise<LawVersion[]> {
+  if (process.env.DATABASE_URL) return listPersistedLawVersions(slug);
   return versions[slug] ?? [];
 }
 
-export function getVersion(slug: string, versionId: string) {
-  return getVersions(slug).find((version) => version.id === versionId);
+export async function getVersion(slug: string, versionId: string): Promise<LawVersion | undefined> {
+  if (process.env.DATABASE_URL) return getPersistedLawVersion(slug, versionId);
+  return (await getVersions(slug)).find((version) => version.id === versionId);
 }
 
-export function getCurrentVersion(slug: string) {
-  return getVersions(slug).find((version) => version.isCurrent) ?? getVersions(slug)[0];
+export async function getCurrentVersion(slug: string) {
+  const available = await getVersions(slug);
+  return available.find((version) => version.isCurrent) ?? available.at(-1);
 }

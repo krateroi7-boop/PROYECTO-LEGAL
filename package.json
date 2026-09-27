@@ -20,6 +20,7 @@
     "corpus:bcn:review": "tsx scripts/review-bcn-staging.ts",
     "source:bcn:import": "tsx scripts/import-bcn-staging.ts",
     "source:bcn:fetch": "tsx scripts/source-bcn-fetch.ts",
+    "source:bcn:resolve": "tsx scripts/source-bcn-resolve.ts",
     "source:bcn:discover": "tsx scripts/source-bcn-discover.ts",
     "source:bcn:inspect": "tsx scripts/source-bcn-inspect.ts",
     "source:bcn:sync": "tsx scripts/source-bcn-sync.ts"
@@ -28,6 +29,7 @@
     "@auth/drizzle-adapter": "^1.11.3",
     "dotenv": "^18.0.0",
     "drizzle-orm": "^0.45.2",
+    "fast-xml-parser": "^5.11.1",
     "next": "16.3.5",
     "next-auth": "^5.0.0-beta.32",
     "postgres": "^3.4.9",

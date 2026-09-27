@@ -29,7 +29,7 @@ export function apiJsonWithEtag<T>(request: Request, data: T, init?: ResponseIni
 export function apiFailure(error: unknown, status = 500) {
   const requestId = randomUUID();
   const body = toApiError(error);
-  return NextResponse.json({ error: { ...body, requestId } }, { status, headers: { "x-request-id": requestId } });
+  return NextResponse.json({ error: { ...body, requestId } }, { status, headers: { "x-request-id": requestId, "cache-control": "no-store" } });
 }
 
 export function apiStatusForError(error: unknown) {

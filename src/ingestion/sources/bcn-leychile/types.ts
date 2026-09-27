@@ -14,7 +14,13 @@ export type BcnPilotMetadata = {
   slug: string;
   number: string;
   title: string;
+  type?: string;
+  status?: "vigente" | "modificada" | "derogada" | "desconocida";
   publishedAt: string;
+  /** Date identifying this source representation; not necessarily legal commencement. */
+  versionDate?: string;
+  /** Legal commencement only when expressly supplied by the source or reviewed metadata. */
+  validFrom?: string;
   sourceUrl: string;
   capturedAt: string;
 };
@@ -34,7 +40,7 @@ export type BcnStagingSnapshot = {
     url: string;
     capturedAt: string;
     checksum: string;
-    parser: "bcn-leychile-json-v1";
+    parser: "bcn-leychile-json-v1" | "bcn-leychile-json-v2";
   };
   norm: BcnPilotMetadata;
   articles: BcnStagingArticle[];

@@ -21,11 +21,12 @@ describe("BCN staging review", () => {
           parser: "bcn-leychile-json-v1",
         },
         norm: {},
-        articles: [{ id: "articulo-1" }],
+        articles: [{ id: "bcn-parte-100" }, { id: "articulo-2-bis" }],
       }));
       const result = await validateBcnStagingDirectory(directory);
       expect(result.status).toBe("pending_legal_review");
       expect(result.sourceChecksumVerified).toBe(true);
+      expect(result.articleCount).toBe(2);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

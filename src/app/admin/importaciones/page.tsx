@@ -35,6 +35,7 @@ export default async function ImportReviewPage() {
         <p className="mt-3 max-w-3xl text-sm leading-7 text-[#697789]">
           Los lotes sincronizados desde fuentes externas permanecen fuera de la web pública hasta que se revisan y publican explícitamente.
         </p>
+        <Link href="/admin/fuentes" className="mt-3 inline-block text-sm font-semibold text-[#173f6b] underline">Condiciones de uso de las fuentes</Link>
         <section className="mt-8 overflow-hidden rounded-2xl border border-[#e2e6eb] bg-white">
           <div className="border-b border-[#edf0f3] bg-[#f8fafb] px-6 py-4">
             <h2 className="font-bold text-[#173f6b]">Lotes editoriales</h2>
@@ -49,6 +50,7 @@ export default async function ImportReviewPage() {
                     <p className="font-bold text-[#173f6b]">{batch.normTitle ?? "Norma pendiente de resolver"}</p>
                     <p className="mt-1 text-xs text-[#697789]">{batch.normSlug ?? "sin slug"} · {batch.itemCount} nodos</p>
                     <p className="mt-2 break-all font-mono text-[11px] text-[#8792a2]">{batch.checksum}</p>
+                    <Link href={`/admin/importaciones/${batch.id}`} className="mt-2 inline-block text-sm font-semibold text-[#173f6b] underline">Revisar texto, diferencias y evidencia</Link>
                   </div>
                   <div>
                     <span className="rounded-full bg-[#eef3f8] px-3 py-1 text-xs font-bold capitalize text-[#526174]">
@@ -57,7 +59,9 @@ export default async function ImportReviewPage() {
                     <p className="mt-2 text-xs text-[#8792a2]">{batch.versionLabel ?? "sin versión propuesta"}</p>
                   </div>
                   <div className="text-xs text-[#697789]">
-                    <p>Capturado: {batch.startedAt.toLocaleString("es-CL")}</p>
+                    <p>Capturado: {(batch.sourceCapturedAt ?? batch.startedAt).toLocaleString("es-CL")}</p>
+                    <p className="mt-1">{batch.sourceName ?? "Fuente sin identificar"}</p>
+                    {!batch.publicationAllowed ? <p className="mt-1 text-[#a94c4c]">Publicación bloqueada hasta verificar condiciones de uso.</p> : null}
                     {batch.rejectionReason ? <p className="mt-1 text-[#a94c4c]">{batch.rejectionReason}</p> : null}
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -74,7 +78,7 @@ export default async function ImportReviewPage() {
                         </form>
                       </>
                     ) : null}
-                    {batch.status === "approved" && actor.role === "admin" ? (
+                    {batch.status === "approved" && batch.publicationAllowed && actor.role === "admin" ? (
                       <form action={publishEditorialBatch}>
                         <input type="hidden" name="batchId" value={batch.id} />
                         <button className="rounded-lg bg-[#173f6b] px-3 py-2 text-xs font-bold text-white" type="submit">Publicar</button>

@@ -10,7 +10,7 @@ export async function GET(request: Request) {
     const query = searchQuerySchema.parse(Object.fromEntries(new URL(request.url).searchParams));
     const result = await listApiNormsPage(query.page, query.limit);
     return apiJson(result.items, {
-      headers: { "cache-control": "public, max-age=60" },
+      headers: { "cache-control": "private, no-cache, must-revalidate" },
     }, { page: query.page, limit: query.limit, hasNext: result.hasNext });
   } catch (error) {
     return apiFailure(error, apiStatusForError(error));

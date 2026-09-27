@@ -14,7 +14,7 @@ if (!normId) {
 } else {
   fetchBcnNorm(normId)
     .then(async (capture) => {
-      const storage = new FilesystemRawStorage(process.env.LEGISDATA_STORAGE_ROOT ?? ".staging");
+      const storage = new FilesystemRawStorage();
       const object = await storage.put(`bcn-leychile/norms/${normId}/captures/${capture.checksum}/raw.json`, capture.raw);
       console.log(JSON.stringify({
         source: capture.source,

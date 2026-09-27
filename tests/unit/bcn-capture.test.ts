@@ -24,7 +24,7 @@ const responseBody = JSON.stringify({
 });
 
 describe("BCN staging capture", () => {
-  it("writes immutable source, snapshot, and manifest files", async () => {
+  it("writes immutable captures and reuses an identical capture", async () => {
     const outputDir = await mkdtemp(join(tmpdir(), "legisdata-bcn-"));
     try {
       const result = await captureBcnNorm({
@@ -36,12 +36,15 @@ describe("BCN staging capture", () => {
       const manifest = JSON.parse(await readFile(result.manifestPath, "utf8")) as { articleCount: number; source: { checksum: string } };
       expect(manifest.articleCount).toBe(1);
       expect(manifest.source.checksum).toBe(result.snapshot.source.checksum);
-      await expect(captureBcnNorm({
-        metadata,
+      const repeated = await captureBcnNorm({
+        metadata: { ...metadata, capturedAt: "2026-09-19T00:00:00.000Z" },
         outputDir,
         endpoint: "https://example.test/norma",
         fetchImpl: async () => new Response(responseBody, { status: 200 }),
-      })).rejects.toThrow("already exists");
+      });
+      expect(repeated.rawPath).toBe(result.rawPath);
+      expect(repeated.snapshot.source.capturedAt).toBe(metadata.capturedAt);
+      expect(repeated.snapshot.source.url).toContain("https://example.test/norma?idNorma=210676");
     } finally {
       await rm(outputDir, { recursive: true, force: true });
     }

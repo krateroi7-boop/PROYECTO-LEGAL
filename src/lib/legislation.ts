@@ -1,7 +1,11 @@
+import type { ProvenanceDto } from "@/api/contracts";
+
 export type Article = {
   id: string;
   number: string;
   title?: string;
+  label?: string;
+  type?: string;
   paragraphs: string[];
 };
 
@@ -11,12 +15,14 @@ export type Law = {
   number: string;
   title: string;
   shortTitle: string;
-  status: "Vigente" | "Modificada";
+  status: "Vigente" | "Modificada" | "Derogada" | "Desconocida";
   published: string;
   updated: string;
   description: string;
   topics: string[];
   articles: Article[];
+  versionId?: string;
+  provenance?: ProvenanceDto;
 };
 
 export const laws: Law[] = [

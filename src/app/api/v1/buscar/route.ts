@@ -13,7 +13,7 @@ export async function GET(request: Request) {
       ...result,
       node: result.node ?? null,
     }));
-    return apiJsonWithEtag(request, validResults, { headers: { "cache-control": "public, max-age=30" } }, {
+    return apiJsonWithEtag(request, validResults, { headers: { "cache-control": "private, no-cache, must-revalidate" } }, {
       page: query.page,
       limit: query.limit,
       hasNext: validResults.length === query.limit,

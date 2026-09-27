@@ -2,8 +2,8 @@ import { z } from "zod";
 import { publicIdSchema, publicSlugSchema, stableKeySchema } from "./ids";
 import { provenanceSchema } from "./provenance";
 
-export const normStatusSchema = z.enum(["vigente", "modificada", "derogada"]);
-export const nodeTypeSchema = z.enum(["titulo", "capitulo", "parrafo", "articulo", "inciso", "disposicion_transitoria"]);
+export const normStatusSchema = z.enum(["vigente", "modificada", "derogada", "desconocida"]);
+export const nodeTypeSchema = z.enum(["titulo", "capitulo", "parrafo", "articulo", "inciso", "disposicion_transitoria", "encabezado", "promulgacion", "anexo", "agrupador"]);
 
 export const articleDtoSchema = z.object({
   id: publicIdSchema.optional(),
@@ -19,7 +19,8 @@ export const articleDtoSchema = z.object({
 export const versionDtoSchema = z.object({
   id: publicIdSchema,
   label: z.string().min(1),
-  validFrom: z.string().datetime(),
+  validFrom: z.string().datetime().nullable(),
+  sourceVersionDate: z.string().datetime().nullable().optional(),
   validTo: z.string().datetime().nullable(),
   isCurrent: z.boolean(),
   provenance: provenanceSchema.optional(),

@@ -21,8 +21,9 @@ export async function validateBcnStagingDirectory(directory: string): Promise<Bc
   const sourceChecksumVerified = expectedChecksum === snapshot.source.checksum;
   if (!sourceChecksumVerified) throw new Error("BCN staging checksum does not match source.json.");
   if (snapshot.articles.length === 0) throw new Error("BCN staging snapshot has no articles.");
-  if (snapshot.articles.some((article, index) => article.id !== `articulo-${index + 1}`)) {
-    throw new Error("BCN staging article identifiers are not contiguous.");
+  const identifiers = snapshot.articles.map((article) => article.id);
+  if (identifiers.some((id) => !id?.trim()) || new Set(identifiers).size !== identifiers.length) {
+    throw new Error("BCN staging article identifiers must be present and unique.");
   }
 
   return {

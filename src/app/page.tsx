@@ -1,7 +1,9 @@
 import Link from "next/link";
+import { connection } from "next/server";
 import { listLaws } from "@/lib/legislation-data";
 
 export default async function Home() {
+  await connection();
   const laws = await listLaws();
   return (
     <main className="min-h-screen bg-[#f6f7f9] text-[#192231]">

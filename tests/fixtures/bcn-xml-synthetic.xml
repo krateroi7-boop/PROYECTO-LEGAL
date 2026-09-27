@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Synthetic fixture following the BCN exchange schema. No legal authority. -->
+<Norma xmlns="http://www.leychile.cl/esquemas" SchemaVersion="1.0" normaId="987654" fechaVersion="2024-03-15" derogado="no derogado" esTratado="no tratado">
+  <Identificador fechaPublicacion="2020-02-29" fechaPromulgacion="2020-02-20">
+    <TiposNumeros><TipoNumero><Tipo>Decreto</Tipo><Numero>001</Numero></TipoNumero></TiposNumeros>
+    <Organismos><Organismo>Órgano ficticio de pruebas</Organismo></Organismos>
+  </Identificador>
+  <Metadatos><Titulo>NORMA SINTÉTICA PARA PRUEBAS DEL CONECTOR</Titulo></Metadatos>
+  <Encabezado fechaVersion="2020-02-29" derogado="no derogado"><Texto>Vistos: antecedentes exclusivamente ficticios.</Texto></Encabezado>
+  <EstructurasFuncionales>
+    <EstructuraFuncional idParte="10" fechaVersion="2020-02-29" tipoParte="Capítulo" derogado="no derogado" transitorio="no transitorio">
+      <Texto>CAPÍTULO I</Texto>
+      <Metadatos><TituloParte presente="si">Reglas de ejemplo</TituloParte></Metadatos>
+      <EstructurasFuncionales>
+        <EstructuraFuncional idParte="11" fechaVersion="2020-02-29" tipoParte="Artículo" derogado="no derogado" transitorio="no transitorio">
+          <Texto>Artículo único. Si A &gt; B y C &lt; D, se conserva la comparación &amp; su contexto.</Texto>
+          <Metadatos><NombreParte presente="si">único</NombreParte></Metadatos>
+        </EstructuraFuncional>
+        <EstructuraFuncional idParte="12" fechaVersion="2024-03-15" tipoParte="Artículo" derogado="no derogado" transitorio="no transitorio">
+          <Texto><![CDATA[Artículo 2 bis. Primera línea.
+Segunda línea con <símbolos literales>.]]></Texto>
+          <Metadatos><NombreParte presente="si">2 bis</NombreParte></Metadatos>
+        </EstructuraFuncional>
+      </EstructurasFuncionales>
+    </EstructuraFuncional>
+    <EstructuraFuncional idParte="13" fechaVersion="2020-02-29" tipoParte="Artículo" derogado="no derogado" transitorio="transitorio">
+      <Texto>Artículo 1 transitorio. Disposición de ejemplo.</Texto>
+      <Metadatos><NombreParte presente="si">1</NombreParte></Metadatos>
+    </EstructuraFuncional>
+  </EstructurasFuncionales>
+  <Promulgacion fechaVersion="2020-02-29" derogado="no derogado"><Texto>Publíquese únicamente como ejemplo de pruebas.</Texto></Promulgacion>
+  <Anexos><Anexo idParte="14" fechaVersion="2020-02-29" derogado="no derogado" transitorio="no transitorio">
+    <Metadatos><Titulo>Tabla ficticia</Titulo></Metadatos>
+    <Texto>Contenido del anexo. <ArchivoBinario SchemaVersion="1.0"><Nombre>tabla.txt</Nombre><TipoContenido>text/plain</TipoContenido><CantidadBytes>4</CantidadBytes><DataCodificada>REVNTw==</DataCodificada><Descripcion>Adjunto ficticio</Descripcion></ArchivoBinario> Fin del anexo.</Texto>
+  </Anexo></Anexos>
+</Norma>

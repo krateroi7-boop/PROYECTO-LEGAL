@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { BCN_PARSER_VERSION } from "./config";
 import type { BcnHtmlNode, BcnNormResponse, BcnPilotMetadata, BcnStagingArticle, BcnStagingSnapshot } from "./types";
 
 export function parseBcnNorm(raw: string, metadata: BcnPilotMetadata): BcnStagingSnapshot {
@@ -8,11 +9,14 @@ export function parseBcnNorm(raw: string, metadata: BcnPilotMetadata): BcnStagin
   } catch {
     throw new Error("BCN response is not valid JSON.");
   }
-  if (!Array.isArray(response.html)) throw new Error("BCN response does not contain an html node list.");
+  if (!response || !Array.isArray(response.html)) throw new Error("BCN response does not contain an html node list.");
 
   const articles: BcnStagingArticle[] = [];
   walk(response.html, articles);
   if (articles.length === 0) throw new Error("BCN response does not contain recognizable articles.");
+  if (new Set(articles.map((article) => article.id)).size !== articles.length) {
+    throw new Error("BCN response contains ambiguous or duplicate article identifiers.");
+  }
 
   return {
     source: {
@@ -20,7 +24,7 @@ export function parseBcnNorm(raw: string, metadata: BcnPilotMetadata): BcnStagin
       url: metadata.sourceUrl,
       capturedAt: metadata.capturedAt,
       checksum: createHash("sha256").update(raw).digest("hex"),
-      parser: "bcn-leychile-json-v1",
+      parser: BCN_PARSER_VERSION,
     },
     norm: metadata,
     articles,
@@ -31,14 +35,18 @@ function walk(nodes: BcnHtmlNode[], articles: BcnStagingArticle[]) {
   for (const node of nodes) {
     const paragraphs = extractParagraphs(node.t ?? "");
     const first = paragraphs[0] ?? "";
-    const match = first.match(/^\s*Artículo\s+(\d+)\s*(?:[°º.]?)(?:\.\s*|\s+)(.*)$/i);
+    const match = first.match(/^\s*Artículo\s+(único|\d+)(?:[°º])?(?:\s+(bis|ter|qu[aá]ter|quinquies|sexies|septies|octies|nonies|decies))?(?:\s+(transitorio))?(?:\s*[.\-:]\s*|\s+|$)(.*)$/i);
     if (match && paragraphs.length > 0) {
-      const title = extractArticleTitle(match[2]);
+      const suffix = [match[2], match[3]].filter(Boolean).join(" ").toLowerCase();
+      const number = /^único$/i.test(match[1]) ? "único" : `${match[1]}${suffix ? ` ${suffix}` : "°"}`;
+      const body = match[4].trim();
+      const title = extractArticleTitle(body);
+      const firstParagraph = title ? body.slice(body.indexOf(".") + 1).trim() : body;
       articles.push({
-        id: `articulo-${articles.length + 1}`,
-        number: `${match[1]}°`,
+        id: node.i !== undefined ? `bcn-parte-${node.i}` : `articulo-${number.replace(/[°º]/g, "").replace(/\s+/g, "-")}`,
+        number,
         title: title || undefined,
-        paragraphs: paragraphs.map((paragraph, index) => index === 0 && title ? stripArticleHeading(paragraph, title) : paragraph).filter(Boolean),
+        paragraphs: [firstParagraph, ...paragraphs.slice(1)].filter(Boolean),
         sourcePartId: node.i,
         sourceFlags: node.v ?? [],
       });
@@ -59,27 +67,27 @@ function extractArticleTitle(value: string) {
   return value.slice(0, separator).trim();
 }
 
-function stripArticleHeading(paragraph: string, title: string) {
-  const normalizedTitle = title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return paragraph.replace(new RegExp(`^Artículo\\s+\\d+\\s*[°º.]?\\s*${normalizedTitle}\\.?\\s*`, "i"), "").trim();
-}
-
 function cleanText(value: string) {
-  return decodeHtmlEntities(value)
+  // Remove actual markup before decoding: encoded < and > are legal text.
+  return decodeHtmlEntities(value
     .replace(/<span\b[^>]*class=["']n["'][^>]*>[\s\S]*?<\/span>/gi, "")
-    .replace(/<[^>]+>/g, " ")
+    .replace(/<[^>]+>/g, " "))
     .replace(/\s+/g, " ")
     .trim();
 }
 
 function decodeHtmlEntities(value: string) {
-  return value
-    .replace(/&#x([0-9a-f]+);/gi, (_, hex: string) => String.fromCodePoint(Number.parseInt(hex, 16)))
-    .replace(/&#(\d+);/g, (_, decimal: string) => String.fromCodePoint(Number(decimal)))
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&quot;/gi, "\"")
-    .replace(/&amp;/gi, "&")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, " ")
-    .replace(/&#39;|&apos;/gi, "'");
+  const named: Record<string, string> = {
+    nbsp: " ", quot: '"', lt: "<", gt: ">", apos: "'", amp: "&",
+    aacute: "á", eacute: "é", iacute: "í", oacute: "ó", uacute: "ú", ntilde: "ñ", uuml: "ü",
+    Aacute: "Á", Eacute: "É", Iacute: "Í", Oacute: "Ó", Uacute: "Ú", Ntilde: "Ñ", Uuml: "Ü",
+    ordm: "º", ordf: "ª", deg: "°", ndash: "–", mdash: "—", laquo: "«", raquo: "»", sect: "§",
+  };
+  // Decode once: &amp;lt; is literal "&lt;", not another HTML tag or comparison operator.
+  return value.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (entity, encoded: string) => {
+    if (!encoded.startsWith("#")) return named[encoded] ?? entity;
+    const hexadecimal = /^#x/i.test(encoded);
+    const codePoint = Number.parseInt(encoded.slice(hexadecimal ? 2 : 1), hexadecimal ? 16 : 10);
+    return codePoint <= 0x10ffff && !(codePoint >= 0xd800 && codePoint <= 0xdfff) ? String.fromCodePoint(codePoint) : entity;
+  });
 }

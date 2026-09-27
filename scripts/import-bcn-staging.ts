@@ -3,7 +3,7 @@ import { importBcnStaging } from "../src/ingestion/sources/bcn-leychile/import";
 import { closeDb } from "../src/db/client";
 
 const pathFlag = process.argv.indexOf("--path");
-const directory = pathFlag >= 0 ? process.argv[pathFlag + 1] : ".staging/bcn-leychile/ley-19880";
+const directory = pathFlag >= 0 ? process.argv[pathFlag + 1] : undefined;
 
 if (!directory) throw new Error("Usage: npm run source:bcn:import -- --path <directory>");
 

@@ -6,7 +6,11 @@ const discoveryEntrySchema = z.object({
   slug: z.string().min(1),
   number: z.string().min(1),
   title: z.string().min(1),
+  type: z.string().min(1).optional(),
+  status: z.enum(["vigente", "modificada", "derogada", "desconocida"]).optional(),
   publishedAt: z.string().datetime().optional(),
+  versionDate: z.string().datetime().optional(),
+  validFrom: z.string().datetime().optional(),
   lastKnownChecksum: z.string().length(64).optional(),
 });
 

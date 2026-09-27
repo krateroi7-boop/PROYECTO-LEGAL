@@ -1,5 +1,6 @@
 import { and, desc, eq, ilike, sql } from "drizzle-orm";
 import { getDb } from "@/db/client";
+import { publicVersionCondition } from "@/db/public-visibility";
 import { normVersions, searchDocuments } from "@/db/schema";
 import type { SearchInput, SearchResult } from "@/search/types";
 
@@ -33,7 +34,7 @@ export async function searchPersisted(input: SearchInput): Promise<SearchResult[
     })
     .from(searchDocuments)
     .innerJoin(normVersions, eq(normVersions.id, searchDocuments.versionId))
-    .where(and(where, eq(normVersions.publicationStatus, "published")))
+    .where(and(where, publicVersionCondition()))
     .orderBy(desc(rank), searchDocuments.title)
     .offset(input.offset ?? 0)
     .limit(input.limit ?? 20);

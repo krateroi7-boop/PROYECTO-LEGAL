@@ -1,47 +1,71 @@
-import { and, asc, eq } from "drizzle-orm";
-import { getDb } from "@/db/client";
-import { normNodes, normVersions, norms } from "@/db/schema";
+import { getApiNormDetail, listApiNorms, listApiVersions } from "@/db/repositories/api";
+import { publicIdSchema, type NormDetailDto } from "@/api/contracts";
 import type { Law } from "@/lib/legislation";
+import type { LawVersion } from "@/domain/versioning/types";
+
+const formatDate = (value: string) => new Date(value).toLocaleDateString("es-CL", {
+  day: "numeric", month: "long", year: "numeric", timeZone: "UTC",
+});
+
+function toLaw(norm: NormDetailDto): Law {
+  const version = norm.currentVersion;
+  return {
+    slug: norm.slug,
+    type: norm.type,
+    number: norm.number,
+    title: norm.title,
+    shortTitle: norm.shortTitle,
+    status: ({ vigente: "Vigente", modificada: "Modificada", derogada: "Derogada", desconocida: "Desconocida" } as const)[norm.status],
+    published: formatDate(norm.publishedAt),
+    updated: version?.sourceVersionDate
+      ? `Fecha de versión declarada: ${formatDate(version.sourceVersionDate)}`
+      : version?.validFrom ? `Fecha de inicio: ${formatDate(version.validFrom)}` : "Fecha de inicio no informada",
+    description: norm.description,
+    topics: norm.topics,
+    versionId: version?.id,
+    provenance: norm.provenance,
+    articles: norm.articles.map((node) => ({
+      id: node.stableKey,
+      number: node.label.replace(/^Artículo\s+/i, ""),
+      label: node.label,
+      type: node.type,
+      title: node.title ?? undefined,
+      paragraphs: node.text ? node.text.split("\n\n") : [],
+    })),
+  };
+}
 
 export async function listPersistedLaws(): Promise<Law[]> {
-  const db = getDb();
-  const rows = await db.select().from(norms).orderBy(asc(norms.number));
-  return Promise.all(rows.map(toLaw));
+  const summaries = await listApiNorms();
+  const laws = await Promise.all(summaries.map((norm) => getPersistedLaw(norm.slug)));
+  return laws.filter((law): law is Law => law !== undefined);
 }
 
-export async function getPersistedLaw(slug: string): Promise<Law | undefined> {
-  const db = getDb();
-  const rows = await db.select().from(norms).where(eq(norms.slug, slug)).limit(1);
-  return rows[0] ? toLaw(rows[0]) : undefined;
+export async function getPersistedLaw(slug: string, versionId?: string): Promise<Law | undefined> {
+  const norm = await getApiNormDetail(slug, versionId);
+  return norm ? toLaw(norm) : undefined;
 }
 
-async function toLaw(row: typeof norms.$inferSelect): Promise<Law> {
-  const db = getDb();
-  const versions = await db.select().from(normVersions).where(and(
-    eq(normVersions.normId, row.id),
-    eq(normVersions.publicationStatus, "published"),
-  )).orderBy(asc(normVersions.validFrom));
-  const version = versions.find((candidate) => candidate.isCurrent) ?? versions.at(-1);
-  const nodes = version
-    ? await db.select().from(normNodes).where(eq(normNodes.versionId, version.id)).orderBy(asc(normNodes.position))
-    : [];
-  const articles = nodes.filter((node) => node.type === "articulo").map((node) => ({
-    id: node.stableKey,
-    number: node.label.replace(/^Artículo\s+/i, ""),
-    title: node.title ?? undefined,
-    paragraphs: node.text.split("\n\n"),
-  }));
+export async function getPersistedLawVersion(slug: string, versionId: string): Promise<LawVersion | undefined> {
+  if (!publicIdSchema.safeParse(versionId).success) return undefined;
+  const norm = await getApiNormDetail(slug, versionId);
+  const version = norm?.currentVersion;
+  if (!norm || !version) return undefined;
   return {
-    slug: row.slug,
-    type: row.type,
-    number: row.number,
-    title: row.title,
-    shortTitle: row.shortTitle,
-    status: row.status === "modificada" ? "Modificada" : "Vigente",
-    published: row.publishedAt.toLocaleDateString("es-CL", { day: "numeric", month: "long", year: "numeric" }),
-    updated: `Última modificación: ${row.updatedAt.toLocaleDateString("es-CL", { day: "numeric", month: "long", year: "numeric" })}`,
-    description: row.description,
-    topics: row.topics,
-    articles,
+    id: version.id,
+    label: version.label,
+    validFrom: version.validFrom ? formatDate(version.validFrom)
+      : version.sourceVersionDate ? `Fecha de versión declarada: ${formatDate(version.sourceVersionDate)}` : "Fecha de inicio no informada",
+    validTo: version.validTo ? formatDate(version.validTo) : undefined,
+    isCurrent: version.isCurrent,
+    law: toLaw(norm),
   };
+}
+
+export async function listPersistedLawVersions(slug: string): Promise<LawVersion[]> {
+  const versions = await listApiVersions(slug);
+  if (!versions) return [];
+  // The web comparator presents versions chronologically; the API lists newest first.
+  const result = await Promise.all([...versions].reverse().map((version) => getPersistedLawVersion(slug, version.id)));
+  return result.filter((version): version is LawVersion => version !== undefined);
 }

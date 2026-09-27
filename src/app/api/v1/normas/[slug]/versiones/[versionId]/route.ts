@@ -13,7 +13,7 @@ export async function GET(
     const versionId = publicIdSchema.parse(parsed.versionId);
     const norm = await getApiNormDetail(slug, versionId);
     if (!norm) return apiFailure(new Error("Norm not found"), 404);
-    return apiJson(norm, { headers: { "cache-control": "public, max-age=60" } });
+    return apiJson(norm, { headers: { "cache-control": "private, no-cache, must-revalidate" } });
   } catch (error) {
     return apiFailure(error, error instanceof Error && error.message === "DATABASE_UNAVAILABLE" ? 503 : 400);
   }

@@ -5,11 +5,13 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { getDb } from "@/db/client";
+import { publicVersionCondition } from "@/db/public-visibility";
 import { annotations, favorites, normNodes, normVersions, norms } from "@/db/schema";
 
 const targetSchema = z.object({
   slug: z.string().min(1).max(200),
   stableKey: z.string().max(200).optional(),
+  versionId: z.string().uuid().optional(),
 });
 
 const noteSchema = targetSchema.extend({
@@ -27,7 +29,11 @@ async function resolveTarget(input: z.infer<typeof targetSchema>) {
 
   const version = await db.select({ id: normVersions.id })
     .from(normVersions)
-    .where(and(eq(normVersions.normId, norm[0].id), eq(normVersions.isCurrent, true)))
+    .where(and(
+      eq(normVersions.normId, norm[0].id),
+      publicVersionCondition(),
+      input.versionId ? eq(normVersions.id, input.versionId) : eq(normVersions.isCurrent, true),
+    ))
     .limit(1);
   if (!version[0]) throw new Error("La norma no tiene una versión vigente publicada.");
 
@@ -54,6 +60,7 @@ export async function toggleFavorite(formData: FormData) {
   const slug = targetSchema.parse({
     slug: formData.get("slug"),
     stableKey: formData.get("stableKey") || undefined,
+    versionId: formData.get("versionId") || undefined,
   });
   const target = await resolveTarget(slug);
   const db = getDb();
@@ -78,6 +85,7 @@ export async function createAnnotation(formData: FormData) {
   const input = noteSchema.parse({
     slug: formData.get("slug"),
     stableKey: formData.get("stableKey") || undefined,
+    versionId: formData.get("versionId") || undefined,
     content: formData.get("content"),
   });
   const target = await resolveTarget(input);

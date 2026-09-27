@@ -71,8 +71,9 @@ export function normalizeBcnSnapshot(snapshot: BcnStagingSnapshot): NormalizedLe
         .filter((flag) => ["MODIFICACION", "CONCORDANCIA"].includes(flag))
         .map((flag) => ({
           sourceStableKey: article.id,
-          type: flag === "MODIFICACION" ? "modifica" as const : "relacionada" as const,
-          evidence: flag,
+          // Source display flags alone do not establish a legal relation or its direction.
+          type: "relacionada" as const,
+          evidence: `BCN flag: ${flag}; legal relation not determined.`,
           sourceFlags: article.sourceFlags,
         })),
     ),

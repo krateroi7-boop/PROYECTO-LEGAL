@@ -13,9 +13,10 @@ import {
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+import type { SourceDocument } from "@/sources/types";
 
-export const normStatus = pgEnum("norm_status", ["vigente", "modificada", "derogada"]);
-export const nodeType = pgEnum("node_type", ["titulo", "capitulo", "parrafo", "articulo", "inciso", "disposicion_transitoria"]);
+export const normStatus = pgEnum("norm_status", ["vigente", "modificada", "derogada", "desconocida"]);
+export const nodeType = pgEnum("node_type", ["titulo", "capitulo", "parrafo", "articulo", "inciso", "disposicion_transitoria", "encabezado", "promulgacion", "anexo", "agrupador"]);
 export const importStatus = pgEnum("import_status", [
   "captured",
   "parsed",
@@ -55,14 +56,15 @@ export const norms = pgTable("norms", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
   slugIdx: uniqueIndex("norms_slug_idx").on(table.slug),
-  numberIdx: uniqueIndex("norms_type_number_idx").on(table.type, table.number),
+  numberIdx: index("norms_type_number_idx").on(table.type, table.number),
 }));
 
 export const normVersions = pgTable("norm_versions", {
   id: uuid("id").defaultRandom().primaryKey(),
   normId: uuid("norm_id").notNull().references(() => norms.id, { onDelete: "cascade" }),
   versionLabel: text("version_label").notNull(),
-  validFrom: timestamp("valid_from", { withTimezone: true }).notNull(),
+  validFrom: timestamp("valid_from", { withTimezone: true }),
+  sourceVersionDate: timestamp("source_version_date", { withTimezone: true }),
   validTo: timestamp("valid_to", { withTimezone: true }),
   isCurrent: boolean("is_current").notNull().default(false),
   kind: versionKind("kind").notNull().default("consolidated"),
@@ -104,6 +106,8 @@ export const normNodes = pgTable("norm_nodes", {
 export const sourceDocuments = pgTable("source_documents", {
   id: uuid("id").defaultRandom().primaryKey(),
   sourceName: text("source_name").notNull(),
+  sourceKey: text("source_key"),
+  normalizedContent: jsonb("normalized_content").$type<SourceDocument>(),
   issuingOrganization: text("issuing_organization"),
   license: text("license"),
   format: text("format"),
@@ -118,7 +122,8 @@ export const sourceDocuments = pgTable("source_documents", {
   capturedAt: timestamp("captured_at", { withTimezone: true }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
-  checksumIdx: uniqueIndex("source_documents_checksum_idx").on(table.checksum),
+  checksumIdx: index("source_documents_checksum_idx").on(table.checksum),
+  representationIdx: uniqueIndex("source_documents_representation_idx").on(table.sourceKey, table.sourceIdentifier, table.checksum, table.parserVersion),
 }));
 
 export const normEvents = pgTable("norm_events", {
@@ -153,5 +158,6 @@ export const importBatches = pgTable("import_batches", {
   startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
   completedAt: timestamp("completed_at", { withTimezone: true }),
 }, (table) => ({
-  checksumIdx: uniqueIndex("import_batches_checksum_idx").on(table.checksum),
+  checksumIdx: index("import_batches_checksum_idx").on(table.checksum),
+  representationIdx: uniqueIndex("import_batches_representation_idx").on(table.sourceDocumentId, table.parserVersion),
 }));

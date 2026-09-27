@@ -12,7 +12,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
     const stableKey = stableKeySchema.parse(parsed.stableKey);
     const article = await getApiArticle(slug, stableKey);
     if (!article) return apiFailure(new Error("Article not found"), 404);
-    return apiJsonWithEtag(request, article, { headers: { "cache-control": "public, max-age=60" } });
+    return apiJsonWithEtag(request, article, { headers: { "cache-control": "private, no-cache, must-revalidate" } });
   } catch (error) {
     return apiFailure(error, error instanceof Error && error.message === "DATABASE_UNAVAILABLE" ? 503 : 400);
   }

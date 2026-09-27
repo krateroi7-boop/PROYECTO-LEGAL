@@ -5,9 +5,9 @@ config({ path: ".env.local" });
 config();
 
 async function main() {
-  const directory = process.env.BCN_STAGING_DIR
-    ? `${process.env.BCN_STAGING_DIR}/ley-19880`
-    : ".staging/bcn-leychile/ley-19880";
+  const pathFlag = process.argv.indexOf("--path");
+  const directory = pathFlag >= 0 ? process.argv[pathFlag + 1] : undefined;
+  if (!directory) throw new Error("Uso: npm run corpus:bcn:review -- --path <directorio-de-captura>");
   const manifest = await writeBcnReviewManifest(directory);
   console.log(JSON.stringify(manifest, null, 2));
 }

@@ -11,6 +11,7 @@ async function main() {
     metadata: {
       normId: "210676",
       slug: "ley-19880",
+      type: "Ley",
       number: "19.880",
       title: "Establece bases de los procedimientos administrativos que rigen los actos de los órganos de la Administración del Estado",
       publishedAt: "2003-05-29T00:00:00.000Z",

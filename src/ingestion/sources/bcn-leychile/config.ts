@@ -14,4 +14,4 @@ export const bcnConfig = {
 };
 
 export const BCN_SOURCE_NAME = "BCN LeyChile";
-export const BCN_PARSER_VERSION = "bcn-leychile-json-v1";
+export const BCN_PARSER_VERSION = "bcn-leychile-json-v2";

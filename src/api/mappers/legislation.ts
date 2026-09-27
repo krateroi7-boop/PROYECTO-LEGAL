@@ -9,7 +9,7 @@ export function mapLawToSummary(law: Law): NormSummaryDto {
     title: law.title,
     shortTitle: law.shortTitle,
     description: law.description,
-    status: law.status === "Modificada" ? "modificada" : "vigente",
+    status: ({ Vigente: "vigente", Modificada: "modificada", Derogada: "derogada", Desconocida: "desconocida" } as const)[law.status],
     topics: law.topics,
     publishedAt: new Date(law.published).toISOString(),
     updatedAt: new Date(law.updated.replace("Última modificación: ", "")).toISOString(),
@@ -53,7 +53,8 @@ export function mapProvenance(input: {
 export function mapVersion(input: {
   id: string;
   versionLabel: string;
-  validFrom: Date;
+  validFrom: Date | null;
+  sourceVersionDate?: Date | null;
   validTo: Date | null;
   isCurrent: boolean;
   provenance?: ProvenanceDto;
@@ -61,7 +62,8 @@ export function mapVersion(input: {
   return {
     id: input.id,
     label: input.versionLabel,
-    validFrom: input.validFrom.toISOString(),
+    validFrom: input.validFrom?.toISOString() ?? null,
+    sourceVersionDate: input.sourceVersionDate?.toISOString() ?? null,
     validTo: input.validTo?.toISOString() ?? null,
     isCurrent: input.isCurrent,
     provenance: input.provenance,

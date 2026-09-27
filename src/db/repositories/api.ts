@@ -1,29 +1,38 @@
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, or, sql } from "drizzle-orm";
 import { getDb } from "@/db/client";
+import { publicSourceCondition, publicVersionCondition } from "@/db/public-visibility";
 import { legalRelations, normNodes, normVersions, norms, sourceDocuments } from "@/db/schema";
 import type { ArticleDto, NormDetailDto, NormSummaryDto, RelationDto, VersionDto } from "@/api/contracts";
 import { mapProvenance, mapVersion } from "@/api/mappers/legislation";
 
 async function getNorm(slug: string) {
-  const rows = await getDb().select().from(norms).where(eq(norms.slug, slug)).limit(1);
+  const rows = await getDb().select().from(norms).where(and(eq(norms.slug, slug), sql`exists (
+    select 1 from ${normVersions}
+    where ${normVersions.normId} = ${norms.id}
+      and ${publicVersionCondition()}
+  )`)).limit(1);
   return rows[0];
 }
 
 async function getVersion(normId: string, versionId?: string) {
   const db = getDb();
   if (versionId) {
-    const rows = await db.select().from(normVersions).where(and(eq(normVersions.id, versionId), eq(normVersions.normId, normId))).limit(1);
+    const rows = await db.select().from(normVersions).where(and(
+      eq(normVersions.id, versionId),
+      eq(normVersions.normId, normId),
+      publicVersionCondition(),
+    )).limit(1);
     return rows[0];
   }
   const current = await db.select().from(normVersions).where(and(
     eq(normVersions.normId, normId),
     eq(normVersions.isCurrent, true),
-    eq(normVersions.publicationStatus, "published"),
+    publicVersionCondition(),
   )).limit(1);
   return current[0] ?? (await db.select().from(normVersions).where(and(
     eq(normVersions.normId, normId),
-    eq(normVersions.publicationStatus, "published"),
-  )).orderBy(desc(normVersions.validFrom)).limit(1))[0];
+    publicVersionCondition(),
+  )).orderBy(desc(sql`coalesce(${normVersions.validFrom}, ${normVersions.sourceVersionDate}, ${normVersions.createdAt})`), desc(normVersions.id)).limit(1))[0];
 }
 
 async function mapVersionWithSource(version: typeof normVersions.$inferSelect): Promise<VersionDto> {
@@ -40,7 +49,7 @@ export async function listApiNorms(): Promise<NormSummaryDto[]> {
   const rows = await getDb().select().from(norms).where(sql`exists (
     select 1 from ${normVersions}
     where ${normVersions.normId} = ${norms.id}
-      and ${normVersions.publicationStatus} = 'published'
+      and ${publicVersionCondition()}
   )`).orderBy(asc(norms.number));
   return rows.map((row) => ({
     id: row.id,
@@ -62,7 +71,7 @@ export async function listApiNormsPage(page: number, limit: number) {
   const rows = await getDb().select().from(norms).where(sql`exists (
     select 1 from ${normVersions}
     where ${normVersions.normId} = ${norms.id}
-      and ${normVersions.publicationStatus} = 'published'
+      and ${publicVersionCondition()}
   )`).orderBy(asc(norms.number), asc(norms.id)).limit(limit + 1).offset(offset);
   const hasNext = rows.length > limit;
   return {
@@ -100,7 +109,7 @@ export async function getApiNormDetail(slug: string, versionId?: string): Promis
     title: node.title,
     text: node.text,
     position: node.position,
-    parentStableKey: null,
+    parentStableKey: nodes.find((parent) => parent.id === node.parentId)?.stableKey ?? null,
   }));
   return {
     id: norm.id,
@@ -125,8 +134,8 @@ export async function listApiVersions(slug: string): Promise<VersionDto[] | unde
   if (!norm) return undefined;
   const versions = await getDb().select().from(normVersions).where(and(
     eq(normVersions.normId, norm.id),
-    eq(normVersions.publicationStatus, "published"),
-  )).orderBy(desc(normVersions.validFrom));
+    publicVersionCondition(),
+  )).orderBy(desc(sql`coalesce(${normVersions.validFrom}, ${normVersions.sourceVersionDate}, ${normVersions.createdAt})`), desc(normVersions.id));
   return Promise.all(versions.map(mapVersionWithSource));
 }
 
@@ -137,6 +146,11 @@ export async function getApiArticle(slug: string, stableKey: string, versionId?:
   if (!version) return undefined;
   const node = await getDb().select().from(normNodes).where(and(eq(normNodes.versionId, version.id), eq(normNodes.stableKey, stableKey))).limit(1);
   if (!node[0]) return undefined;
+  const parent = node[0].parentId
+    ? (await getDb().select({ stableKey: normNodes.stableKey }).from(normNodes).where(and(
+      eq(normNodes.id, node[0].parentId), eq(normNodes.versionId, version.id),
+    )).limit(1))[0]
+    : undefined;
   return {
     id: node[0].id,
     stableKey: node[0].stableKey,
@@ -145,27 +159,47 @@ export async function getApiArticle(slug: string, stableKey: string, versionId?:
     title: node[0].title,
     text: node[0].text,
     position: node[0].position,
-    parentStableKey: null,
+    parentStableKey: parent?.stableKey ?? null,
   };
 }
 
-export async function listApiRelations(slug: string): Promise<RelationDto[] | undefined> {
+export async function listApiRelations(slug: string, direction: "outgoing" | "both" = "outgoing"): Promise<RelationDto[] | undefined> {
   const norm = await getNorm(slug);
   if (!norm) return undefined;
   const db = getDb();
   const rows = await db.select().from(legalRelations).where(
-    and(eq(legalRelations.status, "verified"), eq(legalRelations.sourceNormId, norm.id)),
+    and(eq(legalRelations.status, "verified"), publicSourceCondition(legalRelations.evidenceSourceDocumentId), direction === "both"
+      ? or(eq(legalRelations.sourceNormId, norm.id), eq(legalRelations.targetNormId, norm.id))
+      : eq(legalRelations.sourceNormId, norm.id)),
   );
   const result: RelationDto[] = [];
   for (const row of rows) {
-    const target = await db.select({ slug: norms.slug }).from(norms).where(eq(norms.id, row.targetNormId)).limit(1);
-    if (!target[0]) continue;
+    const [sourceNorm, target] = await Promise.all([
+      db.select({ slug: norms.slug }).from(norms).where(eq(norms.id, row.sourceNormId)).limit(1),
+      db.select({ slug: norms.slug }).from(norms).where(eq(norms.id, row.targetNormId)).limit(1),
+    ]);
+    if (!sourceNorm[0] || !target[0]) continue;
+    const endpoints = await Promise.all([getNorm(sourceNorm[0].slug), getNorm(target[0].slug)]);
+    if (!endpoints[0] || !endpoints[1]) continue;
+    // A verified relation must not disclose a draft endpoint or evidence tied to
+    // an unpublished version. These checks also apply to incoming web relations.
+    if (row.sourceVersionId && !await getVersion(row.sourceNormId, row.sourceVersionId)) continue;
+    if (row.targetVersionId && !await getVersion(row.targetNormId, row.targetVersionId)) continue;
     const [sourceNode] = row.sourceNodeId
-      ? await db.select({ stableKey: normNodes.stableKey }).from(normNodes).where(eq(normNodes.id, row.sourceNodeId)).limit(1)
+      ? await db.select({ stableKey: normNodes.stableKey }).from(normNodes)
+        .innerJoin(normVersions, eq(normVersions.id, normNodes.versionId))
+        .where(and(eq(normNodes.id, row.sourceNodeId), eq(normVersions.normId, row.sourceNormId),
+          publicVersionCondition(),
+          row.sourceVersionId ? eq(normVersions.id, row.sourceVersionId) : undefined)).limit(1)
       : [];
     const [targetNode] = row.targetNodeId
-      ? await db.select({ stableKey: normNodes.stableKey }).from(normNodes).where(eq(normNodes.id, row.targetNodeId)).limit(1)
+      ? await db.select({ stableKey: normNodes.stableKey }).from(normNodes)
+        .innerJoin(normVersions, eq(normVersions.id, normNodes.versionId))
+        .where(and(eq(normNodes.id, row.targetNodeId), eq(normVersions.normId, row.targetNormId),
+          publicVersionCondition(),
+          row.targetVersionId ? eq(normVersions.id, row.targetVersionId) : undefined)).limit(1)
       : [];
+    if ((row.sourceNodeId && !sourceNode) || (row.targetNodeId && !targetNode)) continue;
     const [evidenceSource] = row.evidenceSourceDocumentId
       ? await db.select({ id: sourceDocuments.id, capturedAt: sourceDocuments.capturedAt })
         .from(sourceDocuments)
@@ -174,7 +208,7 @@ export async function listApiRelations(slug: string): Promise<RelationDto[] | un
       : [];
     result.push({
       id: row.id,
-      source: { normSlug: slug, stableKey: sourceNode?.stableKey },
+      source: { normSlug: sourceNorm[0].slug, stableKey: sourceNode?.stableKey },
       target: { normSlug: target[0].slug, stableKey: targetNode?.stableKey },
       type: row.type,
       status: row.status,
