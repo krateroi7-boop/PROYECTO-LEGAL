@@ -2,13 +2,60 @@ openapi: 3.0.3
 info:
   title: Legisdata API
   version: 1.0.0
-  description: API pública de solo lectura para legislación estructurada y versionada.
+  description: Lectura de legislación publicada y resolución exacta de referencias externas. Resolver puede conservar capturas y crear propuestas editoriales internas.
 servers:
   - url: https://example.com
 tags:
   - name: Normas
   - name: Búsqueda
+  - name: Fuentes
 paths:
+  /api/v1/fuentes:
+    get:
+      tags: [Fuentes]
+      summary: Capacidades declaradas y limitaciones de los conectores
+      responses:
+        '200':
+          description: Registro estático; no certifica disponibilidad o autorización de uso actual
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Envelope' }
+  /api/v1/resolver:
+    get:
+      tags: [Fuentes]
+      summary: Resuelve una referencia exacta BCN con caché y revisión editorial
+      description: Puede consultar la fuente y persistir una propuesta. Nunca devuelve el texto pendiente de revisión. Las respuestas no admiten caché HTTP.
+      parameters:
+        - in: query
+          name: referencia
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 500 }
+          example: Ley 19.880
+      responses:
+        '200':
+          description: Versión publicada disponible; puede estar pendiente una actualización
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResolutionEnvelope' }
+        '202':
+          description: Captura conservada, publicación pendiente de revisión o habilitación de fuente
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResolutionEnvelope' }
+        '400':
+          description: Referencia inválida
+        '404':
+          description: Ausencia confirmada por la fuente, temporalmente cacheada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResolutionEnvelope' }
+        '429':
+          description: Límite local de solicitudes excedido
+        '503':
+          description: Persistencia o fuente no disponible; puede incluir Retry-After
+          headers:
+            Retry-After:
+              schema: { type: string }
   /api/v1/normas:
     get:
       tags: [Normas]
@@ -173,6 +220,30 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }
   schemas:
+    ResolutionEnvelope:
+      type: object
+      required: [data, meta]
+      properties:
+        meta: { type: object }
+        data:
+          type: object
+          required: [status, cache, source, reference, checkedAt]
+          properties:
+            status: { type: string, enum: [published, pending_review, not_found, unavailable] }
+            cache: { type: string, enum: [hit, fetched, revalidated, stale, negative, none] }
+            source: { type: string }
+            reference:
+              type: object
+              required: [kind, value]
+              properties:
+                kind: { type: string, enum: [idNorma, idLey] }
+                value: { type: string }
+            checkedAt: { type: string, format: date-time, nullable: true }
+            sourceUrl: { type: string, format: uri }
+            slug: { type: string }
+            versionId: { type: string, format: uuid }
+            retryAfterSeconds: { type: integer, minimum: 1 }
+            reason: { type: string }
     Envelope:
       type: object
       required: [data, meta]

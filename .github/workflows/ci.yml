@@ -33,10 +33,15 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run lint
-      - run: npm test
       - run: npm run fixture:validate
       - run: npm run db:migrate
       - run: npm run db:import
       - run: npm run db:check
-      - run: npm run test:integration
+      - run: npm test
       - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e -- --workers=2
+        env:
+          DATABASE_URL: ""
+          AUTH_TRUST_HOST: "true"
+          PLAYWRIGHT_USE_BUILD: "1"
