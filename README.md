@@ -106,7 +106,11 @@ npm run source:bcn:import -- --path <directorio-de-captura>
 npm run source:bcn:sync
 ```
 
-`source:bcn:discover` no inventa un catálogo remoto: sólo usa `BCN_DISCOVERY_FILE` cuando se configura y, de lo contrario, informa que el discovery no está disponible. `source:bcn:fetch` consulta una norma concreta desde servidor y almacena el raw fuera del código fuente. `source:bcn:import` reutiliza una captura existente, crea una versión propuesta y deja el lote en `pending_review`; nunca publica automáticamente. La publicación requiere una decisión editorial posterior.
+`source:bcn:discover` conserva el modo de archivo `BCN_DISCOVERY_FILE`. El modo remoto es explícito: `npm run source:bcn:discover -- --remote --query 'Ley de transparencia'`, con `DATABASE_URL` y `BCN_DISCOVERY_ENABLED=true`. Consulta metadatos SPARQL selectivos; no descarga XML ni crea propuestas. `source:bcn:fetch` conserva el prototipo de captura JSON. `source:bcn:import` crea una propuesta interna; nunca publica automáticamente.
+
+El segundo hito añade `/api/v1/descubrir`, resultados remotos independientes en `/buscar` y solicitudes de revisión con cuenta en `/consultar`. Aplicar primero todas las migraciones (incluida `0012_discovery_leases_and_review_requests.sql`) y validar antes de habilitar el piloto. Desactivar `BCN_DISCOVERY_ENABLED` conserva el buscador local y el resolvedor exacto. La entrada humana `q=19880` significa número de ley; `referencia=19880` mantiene su significado técnico de `idNorma`. Los candidatos enlazan mediante `idNorma:...` explícito.
+
+`npm run source:cleanup` elimina métricas temporales de más de 30 días y cachés temporales fuera de su ventana de uso; no elimina originales, propuestas ni publicaciones. Programarlo desde el entorno de operación si se desea retención automática. Véanse [operación del segundo hito](docs/bcn-segundo-hito.md) y [conectores](docs/conectores.md).
 
 El conector JSON experimental usa `BCN_API_URL`, `BCN_TIMEOUT_MS`, `BCN_RETRY_COUNT`, `BCN_RETRY_BASE_DELAY_MS`, `BCN_MIN_REQUEST_INTERVAL_MS`, `BCN_MAX_REQUESTS_PER_RUN` y `BCN_DISCOVERY_FILE`. XML utiliza un endpoint HTTPS fijo, timeout de 15 segundos, máximo de 10 MiB y presupuesto compartido por fuente. Ambos admiten `BCN_USER_AGENT` y `LEGISDATA_STORAGE_ROOT`. La lectura pública sirve versiones publicadas desde PostgreSQL; el endpoint de resolución puede consultar BCN y crear propuestas.
 
@@ -115,6 +119,8 @@ La búsqueda persistente usa una proyección `search_documents` con `tsvector` e
 ## Cuentas
 
 Las cuentas usan Auth.js con proveedores OIDC configurables. Define `AUTH_SECRET` y las credenciales de GitHub o Google en `.env` antes de probar `/api/auth/signin`. Favoritos y notas privadas requieren PostgreSQL y nunca forman parte del contenido jurídico público.
+
+“Solicitar revisión” requiere cuenta: una solicitud por usuario y lote, máximo cinco nuevas en 24 horas. `/cuenta/revisiones` muestra su estado editorial. No aprueba contenido, no habilita permisos de fuente ni envía mensajes externos.
 
 La administración usa roles `user`, `reviewer` y `admin`. `/admin/importaciones` exige `reviewer` o `admin`; la autorización se ejecuta en el servidor y no sólo en la interfaz. La migración de roles está en `drizzle/0007_red_stature.sql`.
 
@@ -130,6 +136,7 @@ La API v1 de lectura requiere PostgreSQL configurado. Expone normas, artículos,
 - `/api/v1/normas/:slug/relaciones`
 - `/api/v1/buscar`
 - `/api/v1/resolver?referencia=Ley%2019.880` (consulta fuente y puede persistir una propuesta)
+- `/api/v1/descubrir?q=Ley%20de%20transparencia` (sólo candidatos; piloto configurable)
 - `/api/v1/fuentes` (capacidades declaradas, disponible sin PostgreSQL)
 - `/api/health`
 

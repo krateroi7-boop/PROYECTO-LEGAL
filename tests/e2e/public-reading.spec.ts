@@ -1,5 +1,9 @@
 import { expect, test } from "@playwright/test";
 
+test.beforeEach(async ({ page }) => {
+  await page.route("**/api/v1/resolver?*", (route) => route.fulfill({ status: 503, json: { data: { status: "unavailable", source: "bcn-leychile", reference: { kind: "idLey", value: "19880" }, cache: "none", checkedAt: null } } }));
+});
+
 test("opens the homepage and searches the local corpus", async ({ page }) => {
   await page.goto("/");
   await expect(page).toHaveTitle(/Legisdata/);
@@ -23,7 +27,7 @@ test("opens version history and comparison", async ({ page }) => {
   await page.getByRole("link", { name: "Historial" }).click();
   await expect(page).toHaveURL(/\/normas\/ley-19880\/versiones$/);
   await expect(page.getByRole("heading", { name: /Historial de Ley 19.880/ })).toBeVisible();
-  await page.getByRole("link", { name: "Texto vigente", exact: true }).click();
+  await page.getByRole("listitem").filter({ hasText: "Versión de consulta actual" }).getByRole("link").click();
   await expect(page).toHaveURL(/\/versiones\//);
   await expect(page.getByText(/Versión de consulta actual/)).toBeVisible();
   await page.goto("/normas/ley-19880/comparar");

@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: Legisdata API
   version: 1.0.0
-  description: Lectura de legislación publicada y resolución exacta de referencias externas. Resolver puede conservar capturas y crear propuestas editoriales internas.
+  description: Lectura publicada, descubrimiento selectivo de metadatos y resolución exacta. Sólo resolver conserva capturas y crea propuestas editoriales internas.
 servers:
   - url: https://example.com
 tags:
@@ -10,6 +10,40 @@ tags:
   - name: Búsqueda
   - name: Fuentes
 paths:
+  /api/v1/descubrir:
+    get:
+      tags: [Fuentes, Búsqueda]
+      summary: Descubre hasta diez candidatos BCN sin descargar texto XML
+      description: Requiere BCN_DISCOVERY_ENABLED. Un número aislado representa número de ley. La respuesta vacía no acredita inexistencia ni exhaustividad. No acepta SPARQL del usuario.
+      parameters:
+        - in: query
+          name: q
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 500 }
+          example: Ley de transparencia
+      responses:
+        '200':
+          description: Candidatos, lista vacía o función desactivada; comprobar data.status
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DiscoveryEnvelope' }
+        '202':
+          description: Consulta en curso; comprobar Retry-After, sin sondear más de treinta segundos
+          headers:
+            Retry-After:
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DiscoveryEnvelope' }
+        '400':
+          description: Consulta inválida
+        '429':
+          description: Límite local de solicitudes
+        '503':
+          description: Fuente o persistencia temporalmente no disponible; no representa ausencia
+          headers:
+            Retry-After:
+              schema: { type: string }
   /api/v1/fuentes:
     get:
       tags: [Fuentes]
@@ -31,6 +65,10 @@ paths:
           required: true
           schema: { type: string, minLength: 1, maxLength: 500 }
           example: Ley 19.880
+        - in: query
+          name: discovery
+          description: Correlación opaca devuelta por descubrir; sólo cuenta una selección válida por búsqueda
+          schema: { type: string, format: uuid }
       responses:
         '200':
           description: Versión publicada disponible; puede estar pendiente una actualización
@@ -38,7 +76,10 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ResolutionEnvelope' }
         '202':
-          description: Captura conservada, publicación pendiente de revisión o habilitación de fuente
+          description: Estado resolving (reserva en curso) o pending_review (captura conservada); son estados diferentes
+          headers:
+            Retry-After:
+              schema: { type: string }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ResolutionEnvelope' }
@@ -220,6 +261,66 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }
   schemas:
+    SearchCandidate:
+      type: object
+      required: [source, resourceUri, match, provenance]
+      properties:
+        source: { type: string }
+        resourceUri: { type: string, format: uri }
+        externalId: { type: string, pattern: '^[1-9][0-9]{0,11}$' }
+        reference:
+          type: object
+          properties:
+            kind: { type: string, enum: [idNorma] }
+            value: { type: string }
+        title: { type: string }
+        number: { type: string }
+        type: { type: string }
+        publicationDate: { type: string, format: date }
+        sourceUrl: { type: string, format: uri }
+        organisms:
+          type: array
+          items:
+            type: object
+            required: [uri]
+            properties:
+              uri: { type: string, format: uri }
+              name: { type: string }
+        match:
+          type: object
+          description: Explicación calculada por Legisdata; no metadato oficial
+          properties:
+            strategy: { type: string, enum: [number, title, subject, alias, identifier] }
+            fields: { type: array, items: { type: string } }
+        provenance:
+          type: object
+          properties:
+            endpoint: { type: string, format: uri }
+            observedAt: { type: string, format: date-time }
+            adapterVersion: { type: string }
+        local:
+          type: object
+          description: Publicación enlazada por identidad externa verificada
+          properties:
+            slug: { type: string }
+            versionId: { type: string, format: uuid }
+            needsRevalidation: { type: boolean }
+    DiscoveryEnvelope:
+      type: object
+      required: [data, meta]
+      properties:
+        meta: { type: object }
+        data:
+          type: object
+          required: [status, candidates, cache]
+          properties:
+            status: { type: string, enum: [available, empty, unavailable, in_progress] }
+            candidates: { type: array, maxItems: 10, items: { $ref: '#/components/schemas/SearchCandidate' } }
+            cache: { type: string, enum: [hit, negative, fetched, stale, none] }
+            checkedAt: { type: string, format: date-time }
+            retryAfterSeconds: { type: integer }
+            reason: { type: string }
+            eventId: { type: string, format: uuid }
     ResolutionEnvelope:
       type: object
       required: [data, meta]
@@ -229,7 +330,7 @@ components:
           type: object
           required: [status, cache, source, reference, checkedAt]
           properties:
-            status: { type: string, enum: [published, pending_review, not_found, unavailable] }
+            status: { type: string, enum: [published, pending_review, resolving, not_found, unavailable] }
             cache: { type: string, enum: [hit, fetched, revalidated, stale, negative, none] }
             source: { type: string }
             reference:
@@ -244,6 +345,18 @@ components:
             versionId: { type: string, format: uuid }
             retryAfterSeconds: { type: integer, minimum: 1 }
             reason: { type: string }
+            proposal:
+              type: object
+              description: Ficha editorial limitada; nunca incluye texto, nodos ni original pendiente
+              required: [id, requestable]
+              properties:
+                id: { type: string, format: uuid }
+                title: { type: string }
+                number: { type: string }
+                type: { type: string }
+                publicationDate: { type: string }
+                organisms: { type: array, items: { type: string } }
+                requestable: { type: boolean }
     Envelope:
       type: object
       required: [data, meta]
