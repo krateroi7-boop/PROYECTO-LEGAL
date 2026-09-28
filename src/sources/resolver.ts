@@ -2,16 +2,18 @@ import { createHash } from "node:crypto";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import { publicVersionCondition } from "@/db/public-visibility";
-import { documentIdentifiers, editorialDecisions, importBatches, normNodes, normVersions, norms, sourceBudgets, sourceCache, sourceDocuments, sourceObservations, sourcePolicies } from "@/db/schema";
+import { documentIdentifiers, editorialDecisions, importBatches, normNodes, normVersions, norms, sourceCache, sourceDocuments, sourceObservations, sourcePolicies } from "@/db/schema";
 import { FilesystemRawStorage } from "@/ingestion/storage/filesystem";
 import type { RawStorage } from "@/ingestion/storage/types";
 import { sourcePublicationAllowed } from "@/ingestion/editorial/source-policy";
-import type { LegalSourceConnector, SourceDocument, SourceReference } from "./types";
+import type { LegalSourceConnector, SourceDocument, SourceReference, SourceFetch } from "./types";
+import { acquireLease, ownsLease, releaseLease, backoff } from "./leases";
+import { observeCache } from "./metrics";
 
 type Transaction = Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0];
 type CacheEntry = typeof sourceCache.$inferSelect;
 export type Resolution = {
-  status: "published" | "pending_review" | "not_found" | "unavailable";
+  status: "published" | "pending_review" | "not_found" | "unavailable" | "resolving";
   cache: "hit" | "fetched" | "revalidated" | "stale" | "negative" | "none";
   source: string;
   reference: SourceReference;
@@ -21,6 +23,7 @@ export type Resolution = {
   versionId?: string;
   retryAfterSeconds?: number;
   reason?: string;
+  proposal?: { id: string; title?: string; number?: string; type?: string; publicationDate?: string; organisms?: string[]; requestable: boolean };
 };
 type ResolverOptions = {
   connector: LegalSourceConnector;
@@ -35,127 +38,143 @@ const seconds = (ms: number) => Math.max(1, Math.ceil(ms / 1000));
 
 /** Shared by web, API and CLI. No unreviewed document text leaves this service. */
 export function createSourceResolver(options: ResolverOptions) {
-  const connector = options.connector;
+  const { connector } = options;
   const now = options.now ?? (() => new Date());
   const storage = options.storage ?? new FilesystemRawStorage();
   const ttlMs = options.ttlMs ?? 6 * 60 * 60_000;
   const negativeTtlMs = options.negativeTtlMs ?? 60_000;
-  const minIntervalMs = options.minIntervalMs ?? 1_000;
-
   return async (reference: SourceReference): Promise<Resolution> => {
-    if (!/^[1-9]\d{0,11}$/.test(reference.value) || !["idNorma", "idLey"].includes(reference.kind)) {
-      throw new Error("INVALID_SOURCE_REFERENCE");
-    }
-    const key = `${connector.key}:${reference.kind}:${reference.value}:latest:xml:${connector.parserVersion}`;
-    // Coalescing is local; the advisory lock below also covers independent app instances.
+    if (!/^[1-9]\d{0,11}$/.test(reference.value) || !["idNorma", "idLey"].includes(reference.kind)) throw new Error("INVALID_SOURCE_REFERENCE");
+    const key = resolutionKey(connector, reference);
     const inFlightKey = `${process.env.DATABASE_URL}:${key}`;
     if (pending.has(inFlightKey)) return pending.get(inFlightKey)!;
-    const task = getDb().transaction(async (tx) => {
-      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${key}))`);
-      const [cached] = await tx.select().from(sourceCache).where(eq(sourceCache.key, key));
-      const at = now();
-      if (cached) await tx.update(sourceCache).set({ lastAccessedAt: at }).where(eq(sourceCache.key, key));
-      if (cached && cached.expiresAt > at) {
-        return publicResolution(tx, cached, reference, cached.outcome === "not_found" ? "negative" : "hit");
-      }
-      if (cached?.retryAfter && cached.retryAfter > at) {
-        return publicResolution(tx, cached, reference, "stale", seconds(cached.retryAfter.getTime() - at.getTime()));
-      }
-
-      // Serialize upstream work per provider across processes; a cache hit never takes this lock.
-      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`source-budget:${connector.key}`}))`);
-      const [budget] = await tx.select().from(sourceBudgets).where(eq(sourceBudgets.sourceKey, connector.key));
-      if (budget && budget.nextRequestAt > now()) {
-        const delay = budget.nextRequestAt.getTime() - now().getTime();
-        if (delay > 1_100) {
-          return cached
-            ? publicResolution(tx, cached, reference, "stale", seconds(delay))
-            : { status: "unavailable", cache: "none", source: connector.key, reference, checkedAt: null, retryAfterSeconds: seconds(delay), reason: "source_backoff" } satisfies Resolution;
-        }
-        await new Promise((resolve) => setTimeout(resolve, delay));
-      }
-      await tx.insert(sourceBudgets).values({ sourceKey: connector.key, nextRequestAt: new Date(now().getTime() + minIntervalMs) })
-        .onConflictDoUpdate({ target: sourceBudgets.sourceKey, set: { nextRequestAt: new Date(now().getTime() + minIntervalMs) } });
-      let response;
-      try {
-        response = await connector.fetch(reference, { etag: cached?.etag, lastModified: cached?.lastModified });
-      } catch (error) {
-        const kind = error && typeof error === "object" && "kind" in error ? String(error.kind) : "upstream";
-        const httpStatus = error && typeof error === "object" && "httpStatus" in error ? Number(error.httpStatus) : null;
-        const retryValue = error && typeof error === "object" && "retryAfterMs" in error ? Number(error.retryAfterMs) : 0;
-        const delay = Math.max(30_000, Math.min(24 * 60 * 60_000, Number.isFinite(retryValue) ? retryValue : 0));
-        await tx.insert(sourceObservations).values({ sourceKey: connector.key, cacheKey: key, observedAt: now(), outcome: kind, httpStatus: Number.isFinite(httpStatus) ? httpStatus : null });
-        if (kind === "not-found" && !cached?.sourceDocumentId) {
-          const entry = await writeCache(tx, key, connector.key, reference, {
-            sourceDocumentId: null, etag: null, lastModified: null, outcome: "not_found", checkedAt: now(), expiresAt: new Date(now().getTime() + negativeTtlMs), retryAfter: null, lastAccessedAt: now(),
-          });
-          return publicResolution(tx, entry, reference, "negative");
-        }
-        if (kind === "rate-limit" || kind === "upstream" || kind === "timeout") {
-          await tx.update(sourceBudgets).set({ nextRequestAt: new Date(now().getTime() + delay) }).where(eq(sourceBudgets.sourceKey, connector.key));
-        }
-        if (cached) {
-          await tx.update(sourceCache).set({ retryAfter: new Date(now().getTime() + delay) }).where(eq(sourceCache.key, key));
-          return publicResolution(tx, cached, reference, "stale", seconds(delay));
-        }
-        return { status: "unavailable", cache: "none", source: connector.key, reference, checkedAt: null, retryAfterSeconds: seconds(delay), reason: kind } satisfies Resolution;
-      }
-
-      if (response.kind === "not-modified") {
-        if (!cached?.sourceDocumentId) return { status: "unavailable", cache: "none", source: connector.key, reference, checkedAt: null, reason: "unexpected_304" } satisfies Resolution;
-        const updated = await writeCache(tx, key, connector.key, reference, {
-          ...cached, etag: response.etag ?? cached.etag, lastModified: response.lastModified ?? cached.lastModified,
-          checkedAt: now(), expiresAt: new Date(now().getTime() + ttlMs), retryAfter: null, lastAccessedAt: now(),
-        });
-        await tx.insert(sourceObservations).values({ sourceKey: connector.key, cacheKey: key, sourceDocumentId: cached.sourceDocumentId, observedAt: now(), outcome: "not_modified", httpStatus: 304, sourceUrl: response.url, etag: updated.etag, lastModified: updated.lastModified });
-        return publicResolution(tx, updated, reference, "revalidated");
-      }
-
-      let normalized: SourceDocument;
-      const checksum = createHash("sha256").update(response.raw ?? "").digest("hex");
-      try {
-        if (!response.raw || (response.checksum && response.checksum !== checksum)) throw new Error("Invalid source checksum.");
-        normalized = connector.normalize(response.raw, { url: response.url, capturedAt: response.capturedAt, checksum });
-        validateDocument(normalized);
-        if (reference.kind === "idNorma" && normalized.sourceIdentifier !== reference.value) throw new Error("Source identity mismatch.");
-        if (reference.kind === "idLey" && (normalized.number.replace(/\./g, "") !== reference.value || normalized.type.toLowerCase() !== "ley")) throw new Error("Source law identity mismatch.");
-      } catch {
-        await tx.insert(sourceObservations).values({ sourceKey: connector.key, cacheKey: key, observedAt: now(), outcome: "invalid_document", httpStatus: 200, sourceUrl: response.url, checksum });
-        if (cached) {
-          await tx.update(sourceCache).set({ retryAfter: new Date(now().getTime() + 60_000) }).where(eq(sourceCache.key, key));
-          return publicResolution(tx, cached, reference, "stale", 60);
-        }
-        return { status: "unavailable", cache: "none", source: connector.key, reference, checkedAt: null, reason: "invalid_document" } satisfies Resolution;
-      }
-      const objectKey = `sources/${connector.key}/${normalized.sourceIdentifier}/${checksum}.xml`;
-      await storage.put(objectKey, response.raw!);
-      let [source] = await tx.select().from(sourceDocuments).where(and(
-        eq(sourceDocuments.sourceKey, connector.key), eq(sourceDocuments.sourceIdentifier, normalized.sourceIdentifier),
-        eq(sourceDocuments.checksum, checksum), eq(sourceDocuments.parserVersion, connector.parserVersion),
-      ));
-      if (!source) {
-        [source] = await tx.insert(sourceDocuments).values({
-          sourceKey: connector.key, sourceName: connector.name, sourceIdentifier: normalized.sourceIdentifier,
-          sourceUrl: response.url, format: "application/xml", checksum, parser: connector.parserVersion,
-          parserVersion: connector.parserVersion, storageKey: objectKey, originalObjectKey: objectKey,
-          capturedAt: new Date(response.capturedAt), capturedHttpStatus: 200, normalizedContent: normalized,
-          issuingOrganization: normalized.organisms.join("; "),
-        }).returning();
-      }
-      await proposeDocument(tx, source.id, connector, normalized, checksum);
-      const entry = await writeCache(tx, key, connector.key, reference, {
-        sourceDocumentId: source.id, etag: response.etag ?? null, lastModified: response.lastModified ?? null,
-        outcome: "captured", checkedAt: now(), expiresAt: new Date(now().getTime() + ttlMs), retryAfter: null, lastAccessedAt: now(),
-      });
-      await tx.insert(sourceObservations).values({ sourceKey: connector.key, cacheKey: key, sourceDocumentId: source.id, observedAt: now(), outcome: "captured", httpStatus: 200, sourceUrl: response.url, etag: entry.etag, lastModified: entry.lastModified, checksum });
-      return publicResolution(tx, entry, reference, "fetched");
-    });
+    const task = run();
     pending.set(inFlightKey, task);
     try { return await task; } finally { pending.delete(inFlightKey); }
+
+    async function run(): Promise<Resolution> {
+      const prepared = await getDb().transaction(async (tx) => {
+        const [cached] = await tx.select().from(sourceCache).where(eq(sourceCache.key, key));
+        const at = now();
+        if (cached && cached.expiresAt > at) {
+          await tx.update(sourceCache).set({ lastAccessedAt: at }).where(eq(sourceCache.key, key));
+          const cache = cached.outcome === "not_found" ? "negative" : "hit";
+          await observeCache(tx, connector.key, key, "resolve", cache, at);
+          return { result: await publicResolution(tx, cached, reference, cache) };
+        }
+        if (cached?.retryAfter && cached.retryAfter > at) {
+          await observeCache(tx, connector.key, key, "resolve", "stale", at);
+          return { result: await publicResolution(tx, cached, reference, "stale", seconds(cached.retryAfter.getTime() - at.getTime())) };
+        }
+        const reservation = await acquireLease(tx, key, connector.key, at, options.minIntervalMs ?? 1_000);
+        if (!("lease" in reservation)) {
+          if (cached) await observeCache(tx, connector.key, key, "resolve", "stale", at);
+          return { result: cached?.sourceDocumentId
+          ? { ...await publicResolution(tx, cached, reference, "stale", reservation.retryAfterSeconds), reason: reservation.reason }
+          : { status: reservation.reason === "in_progress" ? "resolving" : "unavailable", cache: "none", source: connector.key, reference, checkedAt: null, retryAfterSeconds: reservation.retryAfterSeconds, reason: reservation.reason } as Resolution };
+        }
+        const [latest] = await tx.select().from(sourceCache).where(eq(sourceCache.key, key));
+        if (latest && latest.expiresAt > now()) {
+          await releaseLease(tx, reservation.lease);
+          const cache = latest.outcome === "not_found" ? "negative" : "hit";
+          await observeCache(tx, connector.key, key, "resolve", cache, now());
+          return { result: await publicResolution(tx, latest, reference, cache) };
+        }
+        await observeCache(tx, connector.key, key, "resolve", "miss", at);
+        return { cached, lease: reservation.lease };
+      });
+      if (prepared.result) return prepared.result;
+      const { cached, lease } = prepared;
+      const started = performance.now();
+      let response: SourceFetch | undefined;
+      let document: SourceDocument | undefined;
+      let checksum: string | undefined;
+      let objectKey: string | undefined;
+      let failure: { kind: string; httpStatus?: number; retryAfterMs?: number } | undefined;
+      let durationMs: number | undefined;
+      // Network, parsing, and durable filesystem IO are deliberately outside every DB transaction.
+      try {
+        response = await connector.fetch(reference, { etag: cached?.etag, lastModified: cached?.lastModified });
+        durationMs = Math.round(performance.now() - started);
+        if (response.kind === "modified") {
+          try {
+            checksum = createHash("sha256").update(response.raw ?? "").digest("hex");
+            if (!response.raw || (response.checksum && response.checksum !== checksum)) throw new Error("Invalid checksum");
+            document = connector.normalize(response.raw, { url: response.url, capturedAt: response.capturedAt, checksum });
+            validateDocument(document);
+            if (reference.kind === "idNorma" && document.sourceIdentifier !== reference.value) throw new Error("Source identity mismatch");
+            if (reference.kind === "idLey" && (document.number.replace(/\./g, "") !== reference.value || document.type.toLowerCase() !== "ley")) throw new Error("Source law identity mismatch");
+          } catch { throw { kind: "invalid_document", httpStatus: 200 }; }
+          objectKey = `sources/${connector.key}/${document.sourceIdentifier}/${checksum}.xml`;
+          await storage.put(objectKey, response.raw!);
+        } else if (!cached?.sourceDocumentId) throw { kind: "unexpected_304", httpStatus: 304 };
+      } catch (error) {
+        const typed = error as { kind?: string; httpStatus?: number; retryAfterMs?: number } | null;
+        failure = { kind: typed?.kind ?? "upstream", httpStatus: typed?.httpStatus, retryAfterMs: typed?.retryAfterMs };
+      }
+      durationMs ??= Math.round(performance.now() - started);
+      try {
+        return await getDb().transaction(async (tx): Promise<Resolution> => {
+          if (!await ownsLease(tx, lease, now())) {
+            await tx.insert(sourceObservations).values({ sourceKey: connector.key, cacheKey: key, observedAt: now(), outcome: "discarded_response", durationMs, httpStatus: response ? response.kind === "modified" ? 200 : 304 : failure?.httpStatus });
+            return { status: "resolving", cache: "none", source: connector.key, reference, checkedAt: null, retryAfterSeconds: 2, reason: "lease_expired" };
+          }
+          if (failure) {
+            await tx.insert(sourceObservations).values({ sourceKey: connector.key, cacheKey: key, observedAt: now(), outcome: failure.kind, httpStatus: failure.httpStatus, durationMs, checksum });
+            if (failure.kind === "not-found" && !cached?.sourceDocumentId) {
+              const entry = await writeCache(tx, key, connector.key, reference, { sourceDocumentId: null, etag: null, lastModified: null, outcome: "not_found", checkedAt: now(), expiresAt: new Date(now().getTime() + negativeTtlMs), retryAfter: null, lastAccessedAt: now() });
+              return publicResolution(tx, entry, reference, "negative");
+            }
+            const until = await backoff(tx, connector.key, now(), failure.retryAfterMs ?? 30_000);
+            const retry = seconds(until.getTime() - now().getTime());
+            if (cached) {
+              await observeCache(tx, connector.key, key, "resolve", "stale", now());
+              await tx.update(sourceCache).set({ retryAfter: until }).where(eq(sourceCache.key, key));
+              return { ...await publicResolution(tx, cached, reference, "stale", retry), reason: failure.kind };
+            }
+            return { status: "unavailable", cache: "none", source: connector.key, reference, checkedAt: null, retryAfterSeconds: retry, reason: failure.kind };
+          }
+          if (response!.kind === "not-modified") {
+            const entry = await writeCache(tx, key, connector.key, reference, { ...cached!, etag: response!.etag ?? cached!.etag, lastModified: response!.lastModified ?? cached!.lastModified, checkedAt: now(), expiresAt: new Date(now().getTime() + ttlMs), retryAfter: null, lastAccessedAt: now() });
+            await tx.update(sourceCache).set({ etag: entry.etag, lastModified: entry.lastModified, checkedAt: entry.checkedAt, expiresAt: entry.expiresAt, retryAfter: null }).where(and(eq(sourceCache.sourceKey, connector.key), eq(sourceCache.sourceDocumentId, entry.sourceDocumentId!)));
+            await tx.insert(sourceObservations).values({ sourceKey: connector.key, cacheKey: key, sourceDocumentId: entry.sourceDocumentId, observedAt: now(), outcome: "not_modified", httpStatus: 304, durationMs, sourceUrl: response!.url });
+            return publicResolution(tx, entry, reference, "revalidated");
+          }
+          const normalized = document!;
+          let [source] = await tx.select().from(sourceDocuments).where(and(eq(sourceDocuments.sourceKey, connector.key), eq(sourceDocuments.sourceIdentifier, normalized.sourceIdentifier), eq(sourceDocuments.checksum, checksum!), eq(sourceDocuments.parserVersion, connector.parserVersion)));
+          const [identity] = await tx.select().from(documentIdentifiers).where(and(eq(documentIdentifiers.sourceKey, connector.key), eq(documentIdentifiers.externalId, normalized.sourceIdentifier)));
+          const change = source ? "unchanged" : identity ? "modified_representation" : "new_document";
+          if (!source) [source] = await tx.insert(sourceDocuments).values({ sourceKey: connector.key, sourceName: connector.name, sourceIdentifier: normalized.sourceIdentifier, sourceUrl: response!.url, format: "application/xml", checksum: checksum!, parser: connector.parserVersion, parserVersion: connector.parserVersion, storageKey: objectKey!, originalObjectKey: objectKey!, capturedAt: new Date(response!.capturedAt), capturedHttpStatus: 200, normalizedContent: normalized, issuingOrganization: normalized.organisms.join("; ") }).returning();
+          await proposeDocument(tx, source.id, connector, normalized, checksum!);
+          const values = { sourceDocumentId: source.id, etag: response!.etag ?? null, lastModified: response!.lastModified ?? null, outcome: "captured", checkedAt: now(), expiresAt: new Date(now().getTime() + ttlMs), retryAfter: null, lastAccessedAt: now() };
+          const entry = await writeCache(tx, key, connector.key, reference, values);
+          // Proof from the normalized document permits aliases without an extra HTTP fetch.
+          const aliases: SourceReference[] = [{ kind: "idNorma", value: normalized.sourceIdentifier }];
+          const lawNumber = normalized.number.replace(/\./g, "");
+          if (normalized.type.toLowerCase() === "ley" && /^[1-9]\d{0,11}$/.test(lawNumber)) aliases.push({ kind: "idLey", value: lawNumber });
+          for (const alias of aliases) if (resolutionKey(connector, alias) !== key) await writeCache(tx, resolutionKey(connector, alias), connector.key, alias, values);
+          await tx.insert(sourceObservations).values({ sourceKey: connector.key, cacheKey: key, sourceDocumentId: source.id, observedAt: now(), outcome: "captured", httpStatus: 200, sourceUrl: response!.url, checksum, durationMs, metadata: { change } });
+          return publicResolution(tx, entry, reference, "fetched");
+        });
+      } finally {
+        await getDb().transaction((tx) => releaseLease(tx, lease));
+      }
+    }
   };
 }
 
-async function writeCache(tx: Transaction, key: string, sourceKey: string, reference: SourceReference, values: Omit<CacheEntry, "key" | "sourceKey" | "referenceKind" | "referenceValue">) {
+export function resolutionKey(connector: Pick<LegalSourceConnector, "key" | "parserVersion">, reference: SourceReference) {
+  return `${connector.key}:${reference.kind}:${reference.value}:latest:xml:${connector.parserVersion}`;
+}
+
+export async function readSourceResolution(connector: LegalSourceConnector, reference: SourceReference) {
+  return getDb().transaction(async (tx) => {
+    const [entry] = await tx.select().from(sourceCache).where(eq(sourceCache.key, resolutionKey(connector, reference)));
+    if (!entry) return undefined;
+    return { resolution: await publicResolution(tx, entry, reference, entry.expiresAt > new Date() ? entry.outcome === "not_found" ? "negative" : "hit" : "stale"), fresh: entry.expiresAt > new Date() };
+  });
+}
+async function writeCache(tx: Transaction, key: string, sourceKey: string, reference: SourceReference, values: Omit<CacheEntry, "key" | "sourceKey" | "referenceKind" | "referenceValue" | "operation" | "payload">) {
   const [entry] = await tx.insert(sourceCache).values({ ...values, key, sourceKey, referenceKind: reference.kind, referenceValue: reference.value })
     .onConflictDoUpdate({ target: sourceCache.key, set: values }).returning();
   return entry;
@@ -171,14 +190,17 @@ async function publicResolution(tx: Transaction, cached: CacheEntry, reference: 
     ? `https://www.bcn.cl/leychile/navegar?idNorma=${encodeURIComponent(source.sourceIdentifier)}`
     : source.sourceUrl ?? undefined;
   const [policy] = await tx.select().from(sourcePolicies).where(eq(sourcePolicies.sourceKey, cached.sourceKey));
-  if (!sourcePublicationAllowed(source, policy)) return { ...base, status: "pending_review", sourceUrl };
+  const [batch] = await tx.select().from(importBatches).where(eq(importBatches.sourceDocumentId, source.id));
+  const doc = source.normalizedContent;
+  const proposal = batch ? { id: batch.id, title: doc?.title, number: doc?.number, type: doc?.type, publicationDate: doc?.publishedAt ?? undefined, organisms: doc?.organisms, requestable: ["pending_review", "approved"].includes(batch.status) } : undefined;
+  if (!sourcePublicationAllowed(source, policy)) return { ...base, status: "pending_review", sourceUrl, proposal };
   const [identity] = await tx.select().from(documentIdentifiers).where(and(eq(documentIdentifiers.sourceKey, cached.sourceKey), eq(documentIdentifiers.externalId, source.sourceIdentifier)));
-  if (!identity) return { ...base, status: "pending_review", sourceUrl };
+  if (!identity) return { ...base, status: "pending_review", sourceUrl, proposal };
   const [published] = await tx.select({ slug: norms.slug, id: normVersions.id, sourceDocumentId: normVersions.sourceDocumentId })
     .from(normVersions).innerJoin(norms, eq(norms.id, normVersions.normId))
     .where(and(eq(normVersions.normId, identity.normId), publicVersionCondition(), eq(normVersions.isCurrent, true)))
     .orderBy(desc(normVersions.publishedAt)).limit(1);
-  if (!published) return { ...base, status: "pending_review", sourceUrl };
+  if (!published) return { ...base, status: "pending_review", sourceUrl, proposal };
   return { ...base, status: "published", sourceUrl, slug: published.slug, versionId: published.id,
     ...(published.sourceDocumentId !== cached.sourceDocumentId ? { cache: "stale" as const, reason: "update_pending_review" } : {}) };
 }

@@ -5,12 +5,12 @@ export const sourceRegistry = [
     capabilities: {
       document: { status: "documented", evidence: "https://www.leychile.cl/esquemas/accesoLeyesChilenas4.pdf" },
       metadata: { status: "experimental", evidence: "https://datos.bcn.cl/es/documentacion/consultas-sparql" },
-      search: { status: "not_verified" },
+      search: { status: "experimental", evidence: "https://datos.bcn.cl/es/documentacion/consultas-sparql" },
       versions: { status: "not_verified" },
       relations: { status: "experimental", evidence: "https://datos.bcn.cl/es/documentacion/normas" },
       changes: { status: "not_verified" },
     },
-    limitation: "Consulta exacta por ID, número de ley o URL. La cobertura y actualidad de SPARQL deben validarse separadamente.",
+    limitation: "Resolución XML exacta y descubrimiento SPARQL selectivo. Los metadatos no acreditan exhaustividad, vigencia ni historial completo. Sus términos de reutilización no habilitan automáticamente el texto XML.",
     usage: "pending_review",
   },
   {

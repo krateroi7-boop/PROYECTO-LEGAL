@@ -49,6 +49,7 @@ export default async function ImportReviewPage() {
                   <div>
                     <p className="font-bold text-[#173f6b]">{batch.normTitle ?? "Norma pendiente de resolver"}</p>
                     <p className="mt-1 text-xs text-[#697789]">{batch.normSlug ?? "sin slug"} · {batch.itemCount} nodos</p>
+                    <p className="mt-2 text-sm">{batch.reviewRequestCount} solicitudes de revisión{batch.oldestReviewRequest ? ` · Primera: ${new Date(batch.oldestReviewRequest).toLocaleDateString("es-CL")}` : ""}</p>
                     <p className="mt-2 break-all font-mono text-[11px] text-[#8792a2]">{batch.checksum}</p>
                     <Link href={`/admin/importaciones/${batch.id}`} className="mt-2 inline-block text-sm font-semibold text-[#173f6b] underline">Revisar texto, diferencias y evidencia</Link>
                   </div>

@@ -11,6 +11,7 @@ export default async function AccountPage() {
           <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#d37d42]">Mi cuenta</p>
           <h1 className="mt-3 text-3xl font-bold text-[#173f6b]">{user.name ?? "Usuario"}</h1>
           <p className="mt-2 text-sm text-[#697789]">{user.email ?? "Cuenta OIDC"}</p>
+          <Link href="/cuenta/revisiones" className="mt-4 inline-block font-semibold text-[#173f6b] underline">Mis solicitudes de revisión</Link>
           {user.role && user.role !== "user" ? <p className="mt-3 text-xs font-semibold uppercase tracking-[0.12em] text-[#d37d42]">Rol: {user.role}</p> : null}
           <div className="mt-8 grid gap-3 sm:grid-cols-2"><Link href="/cuenta/favoritos" className="rounded-xl border border-[#e2e6eb] p-5 font-semibold text-[#173f6b] hover:bg-[#f8fafb]">Mis favoritos →</Link><Link href="/cuenta/notas" className="rounded-xl border border-[#e2e6eb] p-5 font-semibold text-[#173f6b] hover:bg-[#f8fafb]">Mis notas privadas →</Link></div>
         </div>

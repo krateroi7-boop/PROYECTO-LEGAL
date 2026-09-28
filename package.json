@@ -23,7 +23,8 @@
     "source:bcn:resolve": "tsx scripts/source-bcn-resolve.ts",
     "source:bcn:discover": "tsx scripts/source-bcn-discover.ts",
     "source:bcn:inspect": "tsx scripts/source-bcn-inspect.ts",
-    "source:bcn:sync": "tsx scripts/source-bcn-sync.ts"
+    "source:bcn:sync": "tsx scripts/source-bcn-sync.ts",
+    "source:cleanup": "tsx scripts/source-cleanup.ts"
   },
   "dependencies": {
     "@auth/drizzle-adapter": "^1.11.3",

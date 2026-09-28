@@ -1,5 +1,6 @@
-import { boolean, index, integer, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
-import { norms, sourceDocuments } from "./legislation";
+import { boolean, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { importBatches, norms, sourceDocuments } from "./legislation";
+import { users } from "./users";
 
 export const sourcePolicies = pgTable("source_policies", {
   sourceKey: text("source_key").primaryKey(),
@@ -22,6 +23,8 @@ export const sourceCache = pgTable("source_cache", {
   sourceKey: text("source_key").notNull(),
   referenceKind: text("reference_kind").notNull(),
   referenceValue: text("reference_value").notNull(),
+  operation: text("operation").notNull().default("resolve"),
+  payload: jsonb("payload"),
   sourceDocumentId: uuid("source_document_id").references(() => sourceDocuments.id, { onDelete: "restrict" }),
   etag: text("etag"),
   lastModified: text("last_modified"),
@@ -44,7 +47,32 @@ export const sourceObservations = pgTable("source_observations", {
   etag: text("etag"),
   lastModified: text("last_modified"),
   checksum: text("checksum"),
+  operation: text("operation").notNull().default("resolve"),
+  eventKind: text("event_kind").notNull().default("upstream"),
+  durationMs: integer("duration_ms"),
+  discoveryEventId: uuid("discovery_event_id"),
+  metadata: jsonb("metadata").$type<{ candidateIds?: string[]; count?: number; discarded?: number; change?: string }>(),
+}, (table) => ({
+  metricsIdx: index("source_observations_metrics_idx").on(table.sourceKey, table.observedAt, table.eventKind),
+  conversionIdx: uniqueIndex("source_observations_conversion_idx").on(table.discoveryEventId),
+}));
+
+export const sourceLeases = pgTable("source_leases", {
+  key: text("key").primaryKey(),
+  sourceKey: text("source_key").notNull(),
+  owner: uuid("owner").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
 });
+
+export const editorialReviewRequests = pgTable("editorial_review_requests", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  batchId: uuid("batch_id").notNull().references(() => importBatches.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  requestIdx: uniqueIndex("editorial_review_requests_user_batch_idx").on(table.userId, table.batchId),
+  quotaIdx: index("editorial_review_requests_quota_idx").on(table.userId, table.createdAt),
+}));
 
 // A shared lease persists provider backoff between processes and server restarts.
 export const sourceBudgets = pgTable("source_budgets", {

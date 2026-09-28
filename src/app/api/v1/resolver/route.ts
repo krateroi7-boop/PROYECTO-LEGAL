@@ -2,6 +2,7 @@ import { z } from "zod";
 import { apiFailure, apiJson, apiStatusForError, requireDatabase } from "@/api/http";
 import { enforceRateLimit } from "@/api/rate-limit";
 import { bcnConnector, resolveBcnDocument } from "@/sources/bcn";
+import { recordDiscoverySelection } from "@/sources/metrics";
 
 export async function GET(request: Request) {
   try {
@@ -10,8 +11,10 @@ export async function GET(request: Request) {
     const reference = bcnConnector.parseReference(input);
     if (!reference) return apiJson({ status: "invalid_reference", message: "Indique un ID BCN, Ley 19.880 o una URL LeyChile reconocida." }, { status: 400, headers: { "Cache-Control": "no-store" } });
     requireDatabase();
+    const discoveryId = new URL(request.url).searchParams.get("discovery");
+    if (discoveryId && reference.kind === "idNorma") await recordDiscoverySelection(discoveryId, reference.value);
     const result = await resolveBcnDocument(reference);
-    const status = { published: 200, pending_review: 202, not_found: 404, unavailable: 503 }[result.status];
+    const status = { published: 200, pending_review: 202, resolving: 202, not_found: 404, unavailable: 503 }[result.status];
     const headers: Record<string, string> = { "Cache-Control": "no-store" };
     if (result.retryAfterSeconds) headers["Retry-After"] = String(result.retryAfterSeconds);
     return apiJson(result, { status, headers }, { coverage: "exact_reference", source: "bcn-leychile" });

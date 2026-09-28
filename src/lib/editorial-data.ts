@@ -1,6 +1,6 @@
 import { desc, eq, sql } from "drizzle-orm";
 import { getDb } from "@/db/client";
-import { importBatches, norms, normVersions, sourceDocuments, sourcePolicies } from "@/db/schema";
+import { editorialReviewRequests, importBatches, norms, normVersions, sourceDocuments, sourcePolicies } from "@/db/schema";
 import { sourcePublicationAllowed } from "@/ingestion/editorial/source-policy";
 
 export async function getEditorialBatches() {
@@ -9,6 +9,8 @@ export async function getEditorialBatches() {
   const rows = await db
     .select({
       id: importBatches.id,
+      reviewRequestCount: sql<number>`(select count(*)::int from ${editorialReviewRequests} where ${editorialReviewRequests.batchId} = ${importBatches.id})`,
+      oldestReviewRequest: sql<string | null>`(select min(${editorialReviewRequests.createdAt})::text from ${editorialReviewRequests} where ${editorialReviewRequests.batchId} = ${importBatches.id})`,
       checksum: importBatches.checksum,
       status: importBatches.status,
       itemCount: importBatches.itemCount,
