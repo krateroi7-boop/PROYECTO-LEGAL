@@ -1,0 +1,222 @@
+{
+  "from": "2026-09-29T03:12:43.362Z",
+  "to": "2026-09-29T18:49:27.169Z",
+  "upstream": [
+    {
+      "operation": "resolve",
+      "outcome": "rate-limit",
+      "http_status": 429,
+      "duration_ms": 436,
+      "observed_at": "2026-09-29T03:13:19.405Z"
+    },
+    {
+      "operation": "discover",
+      "outcome": "available",
+      "http_status": 200,
+      "duration_ms": 695,
+      "observed_at": "2026-09-29T03:19:19.221Z"
+    },
+    {
+      "operation": "resolve",
+      "outcome": "captured",
+      "http_status": 200,
+      "duration_ms": 353,
+      "observed_at": "2026-09-29T03:20:22.677Z"
+    },
+    {
+      "operation": "metadata",
+      "outcome": "available",
+      "http_status": 200,
+      "duration_ms": 285,
+      "observed_at": "2026-09-29T03:29:13.477Z"
+    },
+    {
+      "operation": "resolve",
+      "outcome": "rate-limit",
+      "http_status": 429,
+      "duration_ms": 375,
+      "observed_at": "2026-09-29T03:29:15.593Z"
+    },
+    {
+      "operation": "resolve",
+      "outcome": "captured",
+      "http_status": 200,
+      "duration_ms": 2168,
+      "observed_at": "2026-09-29T18:41:06.386Z"
+    },
+    {
+      "operation": "metadata",
+      "outcome": "available",
+      "http_status": 200,
+      "duration_ms": 6716,
+      "observed_at": "2026-09-29T18:45:35.165Z"
+    },
+    {
+      "operation": "resolve",
+      "outcome": "not_modified",
+      "http_status": 304,
+      "duration_ms": 664,
+      "observed_at": "2026-09-29T18:45:39.000Z"
+    },
+    {
+      "operation": "metadata",
+      "outcome": "timeout",
+      "http_status": null,
+      "duration_ms": 8016,
+      "observed_at": "2026-09-29T18:46:29.817Z"
+    },
+    {
+      "operation": "metadata",
+      "outcome": "timeout",
+      "http_status": null,
+      "duration_ms": 8027,
+      "observed_at": "2026-09-29T18:48:07.632Z"
+    },
+    {
+      "operation": "discover",
+      "outcome": "timeout",
+      "http_status": null,
+      "duration_ms": 8011,
+      "observed_at": "2026-09-29T18:48:53.493Z"
+    }
+  ],
+  "metrics": [
+    {
+      "operation": "discover",
+      "event_kind": "cache",
+      "outcome": "miss",
+      "count": 2
+    },
+    {
+      "operation": "discover",
+      "event_kind": "cache",
+      "outcome": "stale",
+      "count": 8
+    },
+    {
+      "operation": "discover",
+      "event_kind": "discovery_selected",
+      "outcome": "selected",
+      "count": 6
+    },
+    {
+      "operation": "discover",
+      "event_kind": "discovery_served",
+      "outcome": "available",
+      "count": 9
+    },
+    {
+      "operation": "discover",
+      "event_kind": "discovery_served",
+      "outcome": "unavailable",
+      "count": 1
+    },
+    {
+      "operation": "discover",
+      "event_kind": "upstream",
+      "outcome": "available",
+      "count": 1
+    },
+    {
+      "operation": "discover",
+      "event_kind": "upstream",
+      "outcome": "timeout",
+      "count": 1
+    },
+    {
+      "operation": "metadata",
+      "event_kind": "cache",
+      "outcome": "hit",
+      "count": 8
+    },
+    {
+      "operation": "metadata",
+      "event_kind": "cache",
+      "outcome": "miss",
+      "count": 4
+    },
+    {
+      "operation": "metadata",
+      "event_kind": "discovery_served",
+      "outcome": "available",
+      "count": 10
+    },
+    {
+      "operation": "metadata",
+      "event_kind": "discovery_served",
+      "outcome": "unavailable",
+      "count": 2
+    },
+    {
+      "operation": "metadata",
+      "event_kind": "upstream",
+      "outcome": "available",
+      "count": 2
+    },
+    {
+      "operation": "metadata",
+      "event_kind": "upstream",
+      "outcome": "timeout",
+      "count": 2
+    },
+    {
+      "operation": "resolve",
+      "event_kind": "cache",
+      "outcome": "hit",
+      "count": 4
+    },
+    {
+      "operation": "resolve",
+      "event_kind": "cache",
+      "outcome": "miss",
+      "count": 5
+    },
+    {
+      "operation": "resolve",
+      "event_kind": "cache",
+      "outcome": "stale",
+      "count": 3
+    },
+    {
+      "operation": "resolve",
+      "event_kind": "upstream",
+      "outcome": "captured",
+      "count": 2
+    },
+    {
+      "operation": "resolve",
+      "event_kind": "upstream",
+      "outcome": "not_modified",
+      "count": 1
+    },
+    {
+      "operation": "resolve",
+      "event_kind": "upstream",
+      "outcome": "rate-limit",
+      "count": 2
+    }
+  ],
+  "policies": [],
+  "representations": [
+    {
+      "source_identifier": "210676",
+      "parser_version": "bcn-leychile-xml-v1",
+      "status": "pending_review"
+    },
+    {
+      "source_identifier": "210676",
+      "parser_version": "bcn-leychile-xml-v2",
+      "status": "pending_review"
+    },
+    {
+      "source_identifier": "276363",
+      "parser_version": "bcn-leychile-xml-v1",
+      "status": "pending_review"
+    },
+    {
+      "source_identifier": "276363",
+      "parser_version": "bcn-leychile-xml-v2",
+      "status": "pending_review"
+    }
+  ]
+}

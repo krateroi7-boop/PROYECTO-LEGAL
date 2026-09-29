@@ -16,11 +16,32 @@ test("local publications render while remote metadata is delayed, then remain re
     await page.goto("/buscar?q=procedimiento+administrativo");
     await expect(page.getByRole("heading", { name: "Publicado en Legisdata", exact: true })).toBeVisible();
     await expect(page.getByRole("link").filter({ hasText: "19.880" }).first()).toBeVisible();
-    await expect(page.getByText("Buscando candidatos en BCN…")).toBeVisible();
+    await expect(page.getByText("Buscando más normas…")).toBeVisible();
     release();
     await expect(page.getByText("BCN no está disponible ahora. Los resultados locales siguen disponibles.")).toBeVisible();
     expect(xmlRequests).toBe(0);
+    await page.getByRole("link").filter({ hasText: "19.880" }).first().click();
+    await expect(page).toHaveURL(/\/normas\/ley-19880$/);
   } finally { release(); }
+});
+
+test("deduplicates only verified local identities and opens other published candidates directly", async ({ page }) => {
+  await page.route("**/api/v1/descubrir?*", (route) => route.fulfill({ json: { data: { status: "available", cache: "hit", candidates: [
+    { ...candidate("210676", "Coincidencia con identidad verificada"), local: { slug: "ley-19880" } },
+    { ...candidate("141599", "Otra publicación disponible"), local: { slug: "ley-19628" } },
+  ] } } }));
+  await page.goto("/buscar?q=procedimiento+administrativo");
+  await expect(page.getByRole("heading", { name: "Otra publicación disponible" })).toBeVisible();
+  await expect(page.getByText("Coincidencia con identidad verificada")).toHaveCount(0);
+  await page.getByRole("link", { name: "Leer en Legisdata", exact: true }).click();
+  await expect(page).toHaveURL(/\/normas\/ley-19628$/);
+});
+
+test("routes human consultation back to the same search experience", async ({ page }) => {
+  await page.route("**/api/v1/descubrir?*", (route) => route.fulfill({ json: { data: { status: "empty", candidates: [], cache: "negative" } } }));
+  await page.goto("/consultar?q=procedimiento+administrativo");
+  await expect(page).toHaveURL(/\/buscar\?q=procedimiento%20administrativo/);
+  await expect(page.getByRole("heading", { name: "Buscar en Legisdata", exact: true })).toBeVisible();
 });
 
 for (const [query, title, strategy] of [["Ley 19.880", "Bases de procedimientos administrativos", "number"], ["Ley de transparencia", "Acceso a la información pública", "alias"], ["procedimiento administrativo", "Procedimiento administrativo sintético", "subject"]]) {
@@ -30,7 +51,7 @@ for (const [query, title, strategy] of [["Ley 19.880", "Bases de procedimientos 
       page.on("request", (request) => { if (request.url().includes("/api/v1/descubrir")) discoveryRequests++; });
       await page.route("**/api/v1/resolver?*", (route) => route.fulfill({ status: 503, json: { data: { status: "unavailable", cache: "none", checkedAt: null } } }));
       await page.goto(`/buscar?q=${encodeURIComponent(query)}`);
-      await expect(page.getByRole("link", { name: "Leer en Legisdata" })).toBeVisible();
+      await expect(page.locator('a[href^="/normas/ley-"]').first()).toBeVisible();
       await expect(page.getByRole("link", { name: "Consultar esta norma", exact: true })).toHaveCount(0);
       expect(discoveryRequests).toBe(0);
       return;
@@ -50,7 +71,7 @@ test("ends bounded discovery polling with an explicit retry", async ({ page }) =
   await page.clock.install();
   await page.route("**/api/v1/descubrir?*", (route) => route.fulfill({ status: 202, json: { data: { status: "in_progress", candidates: [], cache: "none", retryAfterSeconds: 2 } } }));
   await page.goto("/buscar?q=procedimiento");
-  await expect(page.getByText("Buscando candidatos en BCN…")).toBeVisible();
+  await expect(page.getByText("Buscando más normas…")).toBeVisible();
   await page.clock.fastForward(31000);
   await expect(page.getByRole("button", { name: "Reintentar búsqueda externa" })).toBeVisible();
 });

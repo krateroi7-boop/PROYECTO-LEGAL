@@ -12,11 +12,11 @@ export function humanReference(input: string): SourceReference | undefined {
 }
 
 /** Publication eligibility is independent from cache freshness. This path never contacts BCN. */
-export async function findLocalExact(reference: SourceReference): Promise<{ resolution: Resolution; fresh: boolean } | undefined> {
+export async function findLocalExact(reference: SourceReference): Promise<{ resolution: Resolution; fresh: boolean; revalidationReference?: SourceReference } | undefined> {
   if (!process.env.DATABASE_URL) return;
   const cached = await readSourceResolution(bcnConnector, reference);
-  if (cached?.resolution.status === "published") return cached;
-  const rows = await getDb().select({ slug: norms.slug, versionId: normVersions.id }).from(norms).innerJoin(normVersions, eq(normVersions.normId, norms.id)).leftJoin(documentIdentifiers, and(eq(documentIdentifiers.normId, norms.id), eq(documentIdentifiers.sourceKey, "bcn-leychile"))).where(and(eq(normVersions.isCurrent, true), publicVersionCondition(), reference.kind === "idNorma" ? eq(documentIdentifiers.externalId, reference.value) : and(eq(norms.type, "Ley"), sql`replace(${norms.number}, '.', '') = ${reference.value}`))).limit(2);
+  if (cached?.resolution.status === "published") return { ...cached, revalidationReference: reference };
+  const rows = await getDb().select({ slug: norms.slug, versionId: normVersions.id, externalId: documentIdentifiers.externalId }).from(norms).innerJoin(normVersions, eq(normVersions.normId, norms.id)).leftJoin(documentIdentifiers, and(eq(documentIdentifiers.normId, norms.id), eq(documentIdentifiers.sourceKey, "bcn-leychile"))).where(and(eq(normVersions.isCurrent, true), publicVersionCondition(), reference.kind === "idNorma" ? eq(documentIdentifiers.externalId, reference.value) : and(eq(norms.type, "Ley"), sql`replace(${norms.number}, '.', '') = ${reference.value}`))).limit(2);
   if (rows.length !== 1) return;
-  return { fresh: false, resolution: { status: "published", source: "bcn-leychile", reference, cache: "stale", checkedAt: cached?.resolution.checkedAt ?? null, slug: rows[0].slug, versionId: rows[0].versionId } };
+  return { fresh: false, revalidationReference: rows[0].externalId ? { kind: "idNorma", value: rows[0].externalId } : undefined, resolution: { status: "published", source: "bcn-leychile", reference, cache: "stale", checkedAt: null, slug: rows[0].slug, versionId: rows[0].versionId } };
 }

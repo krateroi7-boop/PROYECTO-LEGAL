@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 test.beforeEach(async ({ page }) => {
+  await page.route("**/api/v1/descubrir?*", (route) => route.fulfill({ status: 503, json: { data: { status: "unavailable", candidates: [], cache: "none" } } }));
   await page.route("**/api/v1/resolver?*", (route) => route.fulfill({ status: 503, json: { data: { status: "unavailable", source: "bcn-leychile", reference: { kind: "idLey", value: "19880" }, cache: "none", checkedAt: null } } }));
 });
 
@@ -10,7 +11,7 @@ test("opens the homepage and searches the local corpus", async ({ page }) => {
   await page.getByPlaceholder("Buscar leyes, artículos, materias o conceptos").fill("procedimiento");
   await page.getByRole("button", { name: "Buscar" }).click();
   await expect(page).toHaveURL(/\/buscar\?q=procedimiento/);
-  await expect(page.getByText(/Resultados de búsqueda/)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Buscar en Legisdata" })).toBeVisible();
   await expect(page.getByText(/19\.880/)).toBeVisible();
 });
 
@@ -40,19 +41,16 @@ test("protects account pages for anonymous visitors", async ({ page }) => {
   await expect(page).toHaveURL(/\/api\/auth\/signin\?callbackUrl=%2Fcuenta/);
 });
 
-test("links exact references to the BCN consultation form", async ({ page }) => {
+test("opens an already published search result directly in the Legisdata reader", async ({ page }) => {
   await page.goto("/buscar?q=Ley+19.880");
-  await page.getByRole("link", { name: /Consultar.*BCN/i }).click();
-  await expect(page).toHaveURL(/\/consultar\?referencia=/);
-  await expect(page.getByRole("heading", { name: "Consultar una norma en BCN" })).toBeVisible();
-  await expect(page.getByLabel("Ley, ID BCN o enlace")).toHaveValue("Ley 19.880");
+  await page.getByRole("link").filter({ hasText: "19.880" }).first().click();
+  await expect(page).toHaveURL(/\/normas\/ley-19880$/);
+  await expect(page.getByRole("heading", { name: /Establece bases/ })).toBeVisible();
 });
 
 test("rejects unsupported references without navigating to arbitrary sources", async ({ page }) => {
-  await page.goto("/consultar");
-  await page.getByLabel("Ley, ID BCN o enlace").fill("https://example.org/norma");
-  await page.getByRole("button", { name: "Consultar", exact: true }).click();
-  await expect(page.getByRole("main").getByRole("alert")).toContainText("URL LeyChile reconocida");
+  await page.goto("/consultar?referencia=https://example.org/norma");
+  await expect(page.getByRole("main").getByRole("alert")).toContainText("La referencia no es válida");
   await expect(page.getByRole("link", { name: "Leer en Legisdata" })).toHaveCount(0);
   await page.getByRole("link", { name: "Legisdata", exact: true }).click();
   await expect(page).toHaveURL("/");
@@ -62,7 +60,7 @@ test("explains unavailable external resolution in the fixture instance", async (
   test.skip(Boolean(process.env.DATABASE_URL), "This state requires the fixture server without PostgreSQL.");
   await page.goto("/consultar?referencia=Ley+19.880");
   await expect(page.getByRole("main").getByRole("alert")).toHaveText("La consulta de fuentes externas no está disponible en esta instancia.");
-  await page.getByRole("link", { name: "buscador de Legisdata" }).click();
+  await page.getByRole("link", { name: "Buscar otra norma en Legisdata" }).click();
   await expect(page).toHaveURL("/buscar");
 });
 

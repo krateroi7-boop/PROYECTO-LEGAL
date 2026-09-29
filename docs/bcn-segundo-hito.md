@@ -2,6 +2,8 @@
 
 El hito añade descubrimiento selectivo sobre el primer conector XML, sin reconstruir parser, normalización, evidencia ni flujo editorial. Su activación no modifica permisos de publicación de BCN.
 
+El [piloto funcional del 29-09-2026](piloto-bcn-2026-09-29.md) documenta las comprobaciones reales posteriores, las incidencias de disponibilidad y los ajustes del recorrido de búsqueda. La entrada humana de `/consultar` se unificó con `/buscar`; las referencias técnicas siguen abriendo la ficha correspondiente.
+
 ## Activación y reversión operativa
 
 1. Respaldar PostgreSQL y el almacenamiento duradero de originales.

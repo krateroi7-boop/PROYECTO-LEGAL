@@ -24,9 +24,9 @@ export function DiscoveryResults({ query, localSlugs = [] }: { query: string; lo
     return () => { controller.abort(); clearTimeout(expiry); if (timer) clearTimeout(timer); };
   }, [query, attempt]);
   const candidates = result?.candidates.filter((candidate) => !candidate.local || !localSlugs.includes(candidate.local.slug)) ?? [];
-  return <section className="mt-8" aria-live="polite"><h2 className="text-xl font-bold text-[#173f6b]">Disponible en fuente externa</h2>
-    <p className="mt-2 text-sm text-[#697789]">Candidatos de metadatos BCN. No es una búsqueda exhaustiva ni una comprobación de vigencia.</p>
-    {!result || result.status === "in_progress" ? <p className="mt-4">Buscando candidatos en BCN…</p> : null}
+  return <section className="mt-8" aria-live="polite"><h2 className="text-xl font-bold text-[#173f6b]">Más normas para consultar</h2>
+    <p className="mt-2 text-sm text-[#697789]">Referencias de BCN / LeyChile. Seleccione una norma para consultar su disponibilidad en Legisdata. La búsqueda no acredita vigencia ni cobertura completa.</p>
+    {!result || result.status === "in_progress" ? <p className="mt-4">Buscando más normas…</p> : null}
     {result?.cache === "stale" ? <p className="mt-3 text-sm">Resultados conservados de una consulta anterior; no se pudo actualizar la fuente.</p> : null}
     {result?.status === "unavailable" ? <p className="mt-4">{result.reason === "disabled" ? "El descubrimiento remoto está desactivado en esta instancia." : "BCN no está disponible ahora. Los resultados locales siguen disponibles."}</p> : null}
     {result?.status === "empty" ? <p className="mt-4">No encontramos candidatos con esta búsqueda. Esto no confirma que la norma no exista.</p> : null}
@@ -38,7 +38,7 @@ export function DiscoveryResults({ query, localSlugs = [] }: { query: string; lo
       {candidate.organisms?.map((org) => org.name ? <p key={org.uri} className="mt-1 text-sm">{org.name}</p> : null)}
       {candidate.match.strategy === "alias" ? <p className="mt-2 text-xs">Coincidencia mediante un nombre habitual de búsqueda.</p> : null}
       <p className="mt-2 text-xs text-[#697789]">Metadatos BCN · Consulta: {new Date(candidate.provenance.observedAt).toLocaleDateString("es-CL", { timeZone: "America/Santiago" })} · Coincidencia calculada por Legisdata.</p>
-      {candidate.reference ? <Link prefetch={false} href={`/consultar?referencia=${encodeURIComponent(`${candidate.reference.kind}:${candidate.reference.value}`)}${result?.eventId ? `&discovery=${result.eventId}` : ""}`} className="mt-3 inline-block font-semibold underline">{candidate.local ? "Leer publicación disponible" : "Consultar esta norma"}</Link> : <a href={candidate.sourceUrl ?? candidate.resourceUri} rel="noreferrer" target="_blank" className="mt-3 inline-block underline">Ver recurso de la fuente</a>}
+      {candidate.reference ? <Link prefetch={false} href={candidate.local ? `/normas/${candidate.local.slug}` : `/consultar?referencia=${encodeURIComponent(`${candidate.reference.kind}:${candidate.reference.value}`)}&busqueda=${encodeURIComponent(query)}${result?.eventId ? `&discovery=${result.eventId}` : ""}`} className="mt-3 inline-block font-semibold underline">{candidate.local ? "Leer en Legisdata" : "Consultar esta norma"}</Link> : <a href={candidate.sourceUrl ?? candidate.resourceUri} rel="noreferrer" target="_blank" className="mt-3 inline-block underline">Ver recurso de la fuente</a>}
     </article>)}
     {result?.status === "unavailable" && result.reason !== "disabled" ? <button onClick={() => setAttempt((value) => value + 1)} className="mt-4 underline">Reintentar búsqueda externa</button> : null}
   </section>;
