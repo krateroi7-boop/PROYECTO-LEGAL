@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { XMLParser } from "fast-xml-parser";
 import { BcnXmlError, validateBcnXmlPayload } from "./xml-client";
 
-export const BCN_XML_PARSER_VERSION = "bcn-leychile-xml-v1";
+export const BCN_XML_PARSER_VERSION = "bcn-leychile-xml-v2";
 
 export type BcnXmlNode = {
   stableKey: string;
@@ -67,6 +67,7 @@ const parser = new XMLParser({
   ignoreDeclaration: true,
   ignorePiTags: true,
   processEntities: true,
+  htmlEntities: true,
 });
 
 function elements(element: Element, name?: string): Element[] {
@@ -158,7 +159,7 @@ export function parseBcnXml(raw: string, capture: { url: string; capturedAt: str
   const identifiers = pairs ? elements(pairs, "TipoNumero").map((pair) => ({ type: text(child(pair, "Tipo")), number: text(child(pair, "Numero")) })) : [];
   if (!identification || identifiers.length === 0 || identifiers.some((pair) => !pair.type || !pair.number)) throw new BcnXmlError("invalid-response", "La norma XML carece de tipo o número de identificación.");
   const metadata = child(norm, "Metadatos");
-  const declaredTitle = text(child(metadata, "Titulo"));
+  const declaredTitle = text(child(metadata, "TituloNorma")) || text(child(metadata, "Titulo"));
   if (!declaredTitle) warnings.add("missing-title");
   const title = declaredTitle || `${identifiers[0].type} ${identifiers[0].number}`;
   const organismsElement = child(identification, "Organismos");

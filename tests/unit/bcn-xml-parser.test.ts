@@ -8,6 +8,14 @@ const raw = readFileSync("tests/fixtures/bcn-xml-synthetic.xml", "utf8");
 const capture = { url: "https://www.leychile.cl/Consulta/obtxml?opt=7&idNorma=987654", capturedAt: "2026-09-26T12:00:00.000Z" };
 
 describe("BCN XML normalization", () => {
+  it("reads TituloNorma and decimal/hexadecimal XML character references seen in real captures", () => {
+    const sample = raw.replaceAll("<Titulo>", "<TituloNorma>").replaceAll("</Titulo>", "</TituloNorma>").replace("Órgano ficticio de pruebas", "&#211;rgano ficticio de pruebas &#xCD;");
+    const document = parseBcnXml(sample, capture);
+    expect(document.identity.title).toBe(parseBcnXml(raw, capture).identity.title);
+    expect(document.identity.organisms).toEqual(["Órgano ficticio de pruebas Í"]);
+    expect(document.warnings).not.toContain("missing-title");
+    expect(document.source.parser).toBe("bcn-leychile-xml-v2");
+  });
   it("preserves source identity, declared dates, type and legal-status uncertainty", () => {
     const document = parseBcnXml(raw, capture);
     expect(document.identity).toMatchObject({ sourceIdentifier: "987654", type: "Decreto", number: "001", publishedAt: "2020-02-29", versionDate: "2024-03-15", status: "unknown", sourceStatus: "no derogado", organisms: ["Órgano ficticio de pruebas"] });
