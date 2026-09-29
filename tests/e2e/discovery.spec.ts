@@ -6,6 +6,49 @@ import { auditLogs, importBatches, norms, sessions, users } from "../../src/db/s
 
 const candidate = (id: string, title: string, strategy = "title") => ({ source: "bcn-leychile", resourceUri: `https://datos.bcn.cl/recurso/test/${id}`, externalId: id, reference: { kind: "idNorma", value: id }, title, match: { strategy, fields: [strategy] }, provenance: { endpoint: "https://datos.bcn.cl/sparql", observedAt: new Date().toISOString(), adapterVersion: "test-v1" } });
 
+for (const query of ["Código Civil", "codigo civil"]) {
+  test(`keeps local absence separate from external results for ${query}`, async ({ page }) => {
+    let release!: () => void;
+    const gate = new Promise<void>((done) => { release = done; });
+    let xmlRequests = 0;
+    page.on("request", (request) => { if (request.url().includes("/api/v1/resolver")) xmlRequests++; });
+    await page.route("**/api/v1/descubrir?*", async (route) => { await gate; await route.fulfill({ json: { data: { status: "available", cache: "hit", candidates: [candidate("999999996", "Código Civil — candidato de prueba")] } } }); });
+    try {
+      await page.goto(`/buscar?q=${encodeURIComponent(query)}`);
+      await expect(page.getByText("No hay publicaciones locales que coincidan con esta búsqueda.")).toBeVisible();
+      await expect(page.getByText("Buscando más normas…")).toBeVisible();
+      await expect(page.getByText("No encontramos normas que coincidan con tu búsqueda.")).toHaveCount(0);
+      release();
+      await expect(page.getByText("1 coincidencia disponible para consultar.")).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Código Civil — candidato de prueba", exact: true })).toBeVisible();
+      await expect(page.getByRole("link", { name: "Consultar esta norma", exact: true })).toHaveAttribute("href", /referencia=idNorma%3A999999996/);
+      expect(xmlRequests).toBe(0);
+    } finally { release(); }
+  });
+}
+
+for (const reason of ["rate-limit", "source_backoff"]) {
+  test(`explains ${reason} without losing the official link or polling beyond the time limit`, async ({ page }) => {
+    await page.clock.install();
+    await page.route("**/api/v1/descubrir?*", (route) => route.fulfill({ json: { data: { status: "empty", candidates: [], cache: "negative" } } }));
+    let requests = 0;
+    await page.route("**/api/v1/resolver?*", (route) => {
+      requests++;
+      return route.fulfill({ status: 503, json: { data: { status: "unavailable", source: "bcn-leychile", reason, retryAfterSeconds: 300, cache: "none", checkedAt: null, reference: { kind: "idNorma", value: "999999996" } } } });
+    });
+    await page.goto("/consultar?referencia=idNorma:999999996&busqueda=codigo%20civil");
+    await expect(page.getByText("No se pudo recuperar el texto desde BCN. Esto no significa que la norma no exista.")).toBeVisible();
+    await expect(page.getByText(/Intente nuevamente en aproximadamente 5 minutos/)).toBeVisible();
+    await expect(page.getByRole("link", { name: "Consultar fuente BCN" })).toHaveAttribute("href", "https://www.bcn.cl/leychile/navegar?idNorma=999999996");
+    await expect(page.getByRole("button", { name: "Solicitar revisión" })).toHaveCount(0);
+    await page.clock.fastForward(310000);
+    await expect(page.getByText("La comprobación está tardando. Puede volver a intentarlo.")).toHaveCount(0);
+    expect(requests).toBe(1);
+    await page.getByRole("link", { name: "Volver a resultados" }).click();
+    await expect(page).toHaveURL(/\/buscar\?q=codigo%20civil/);
+  });
+}
+
 test("local publications render while remote metadata is delayed, then remain readable on failure", async ({ page }) => {
   let release!: () => void;
   const gate = new Promise<void>((done) => { release = done; });

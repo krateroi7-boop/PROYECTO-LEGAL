@@ -24,13 +24,14 @@ export function DiscoveryResults({ query, localSlugs = [] }: { query: string; lo
     return () => { controller.abort(); clearTimeout(expiry); if (timer) clearTimeout(timer); };
   }, [query, attempt]);
   const candidates = result?.candidates.filter((candidate) => !candidate.local || !localSlugs.includes(candidate.local.slug)) ?? [];
-  return <section className="mt-8" aria-live="polite"><h2 className="text-xl font-bold text-[#173f6b]">Más normas para consultar</h2>
+  return <section className="mt-8" aria-live="polite"><h2 className="text-xl font-bold text-[#173f6b]">{localSlugs.length ? "Más normas para consultar" : "Normas para consultar"}</h2>
     <p className="mt-2 text-sm text-[#697789]">Referencias de BCN / LeyChile. Seleccione una norma para consultar su disponibilidad en Legisdata. La búsqueda no acredita vigencia ni cobertura completa.</p>
     {!result || result.status === "in_progress" ? <p className="mt-4">Buscando más normas…</p> : null}
     {result?.cache === "stale" ? <p className="mt-3 text-sm">Resultados conservados de una consulta anterior; no se pudo actualizar la fuente.</p> : null}
     {result?.status === "unavailable" ? <p className="mt-4">{result.reason === "disabled" ? "El descubrimiento remoto está desactivado en esta instancia." : "BCN no está disponible ahora. Los resultados locales siguen disponibles."}</p> : null}
     {result?.status === "empty" ? <p className="mt-4">No encontramos candidatos con esta búsqueda. Esto no confirma que la norma no exista.</p> : null}
     {result?.status === "available" && !candidates.length ? <p className="mt-4">Los candidatos encontrados ya aparecen entre las publicaciones locales.</p> : null}
+    {result?.status === "available" && candidates.length > 0 ? <p className="mt-4 font-semibold">{candidates.length === 1 ? "1 coincidencia disponible para consultar." : `${candidates.length} coincidencias disponibles para consultar.`}</p> : null}
     {candidates.map((candidate) => <article key={`${candidate.source}:${candidate.externalId ?? candidate.resourceUri}`} className="mt-4 rounded-xl border bg-white p-5">
       <p className="text-xs font-bold uppercase text-[#697789]">{candidate.local ? "Publicado en Legisdata" : "Disponible en fuente externa"}</p>
       <h3 className="mt-2 font-bold text-[#173f6b]">{candidate.title ?? "Norma sin título informado"}</h3>
