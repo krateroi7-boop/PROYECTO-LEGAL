@@ -98,6 +98,7 @@ export async function getApiNormDetail(slug: string, versionId?: string): Promis
   const version = await getVersion(norm.id, versionId);
   if (!version) return undefined;
   const nodes = await getDb().select().from(normNodes).where(eq(normNodes.versionId, version.id)).orderBy(asc(normNodes.position));
+  const parentKeys = new Map(nodes.map((node) => [node.id, node.stableKey]));
   const source = version.sourceDocumentId
     ? (await getDb().select().from(sourceDocuments).where(eq(sourceDocuments.id, version.sourceDocumentId)).limit(1))[0]
     : undefined;
@@ -109,7 +110,7 @@ export async function getApiNormDetail(slug: string, versionId?: string): Promis
     title: node.title,
     text: node.text,
     position: node.position,
-    parentStableKey: nodes.find((parent) => parent.id === node.parentId)?.stableKey ?? null,
+    parentStableKey: node.parentId ? parentKeys.get(node.parentId) ?? null : null,
   }));
   return {
     id: norm.id,

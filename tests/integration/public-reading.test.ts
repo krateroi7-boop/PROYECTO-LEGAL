@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { eq, inArray } from "drizzle-orm";
 import { closeDb, getDb } from "@/db/client";
-import { annotations, favorites, legalRelations, normNodes, normVersions, norms, searchDocuments, sourceDocuments, sourcePolicies, users } from "@/db/schema";
+import { annotations, favorites, legalRelations, normNodes, normVersions, norms, searchDocuments, sourceDocuments, sourceObservations, sourcePolicies, users } from "@/db/schema";
 import { getApiArticle, getApiNormDetail, listApiNorms, listApiRelations, listApiVersions } from "@/db/repositories/api";
 import { getPersistedLaw, listPersistedLaws } from "@/db/repositories/laws";
 import { getVersion, getVersions } from "@/lib/versioning-data";
@@ -10,7 +10,9 @@ import { getVerifiedRelations } from "@/lib/relations-data";
 import { compareVersions } from "@/domain/versioning/compare";
 import { GET as getVersionRoute } from "@/app/api/v1/normas/[slug]/versiones/[versionId]/route";
 import { GET as getNormRoute } from "@/app/api/v1/normas/[slug]/route";
-import { createAnnotation, toggleFavorite } from "@/app/actions/personal";
+import { createAnnotation, toggleFavorite, deleteAnnotationAction } from "@/app/actions/personal";
+import { getReaderDocument, getReaderRelations, getReaderVersions } from "@/lib/reader/data";
+import { loadReaderPersonal, loadReaderRelations, loadReaderChanges } from "@/app/actions/reader";
 import { searchPersisted } from "@/db/repositories/search";
 
 const actor = vi.hoisted(() => ({ id: "" }));
@@ -75,6 +77,7 @@ describe.skipIf(!process.env.DATABASE_URL)("Public reading preserves editorial b
   afterAll(async () => {
     const db = getDb();
     if (normIds.length) await db.delete(norms).where(inArray(norms.id, normIds));
+    if (sourceId) await db.delete(sourceObservations).where(eq(sourceObservations.sourceDocumentId, sourceId));
     if (sourceId) await db.delete(sourceDocuments).where(eq(sourceDocuments.id, sourceId));
     await db.delete(sourcePolicies).where(eq(sourcePolicies.sourceKey, sourceKey));
     await db.delete(users).where(eq(users.id, actor.id));
@@ -140,6 +143,42 @@ describe.skipIf(!process.env.DATABASE_URL)("Public reading preserves editorial b
     await expect(toggleFavorite(form)).rejects.toThrow("publicada");
   });
 
+  it("reader preserves hierarchy and exposes only public summaries and matching version relations", async () => {
+    const doc = (await getReaderDocument(slug))!;
+    expect(doc.demonstration).toBe(false);
+    expect(doc.nodes.find((n) => n.stableKey === "articulo-1")?.parentStableKey).toBe("titulo-1");
+    expect((await getReaderVersions(slug)).map((v) => v.id)).not.toContain(draftId);
+    const [historicalRelation] = await getDb().insert(legalRelations).values({ sourceNormId: normIds[0], sourceVersionId: originalId, targetNormId: normIds[2], type: "cita", status: "verified", evidence: "Sólo original", method: "manual" }).returning();
+    expect((await getReaderRelations(doc)).map((r) => r.id)).not.toContain(historicalRelation.id);
+    expect((await getReaderRelations((await getReaderDocument(slug, originalId))!)).map((r) => r.id)).toContain(historicalRelation.id);
+    await expect(loadReaderRelations({ slug, versionId: draftId })).rejects.toThrow("no disponible");
+    await expect(loadReaderChanges({ slug, versionId: draftId })).rejects.toThrow("no disponible");
+    await expect(loadReaderPersonal({ slug, versionId: currentId, stableKey: "missing" })).rejects.toThrow("no disponible");
+  });
+
+  it("reader loads only the authenticated user's notes for the exact version and node", async () => {
+    const original = await loadReaderPersonal({ slug, versionId: originalId, stableKey: "articulo-1" });
+    expect(original.favorite).toBe(true);
+    expect(original.notes).toHaveLength(1);
+    expect((await loadReaderPersonal({ slug, versionId: currentId, stableKey: "articulo-1" })).notes).toEqual([]);
+    const owner = actor.id;
+    actor.id = "unrelated-reader";
+    const remove = new FormData(); remove.set("id", original.notes[0].id);
+    await deleteAnnotationAction(remove);
+    expect((await loadReaderPersonal({ slug, versionId: originalId, stableKey: "articulo-1" })).notes).toEqual([]);
+    actor.id = owner;
+    expect((await loadReaderPersonal({ slug, versionId: originalId, stableKey: "articulo-1" })).notes).toHaveLength(1);
+  });
+
+  it("reports successful checks of the exact captured representation, excluding cache events and failures", async () => {
+    await getDb().insert(sourceObservations).values([
+      { sourceKey, cacheKey: run, sourceDocumentId: sourceId, observedAt: new Date("2026-01-02T00:00:00Z"), operation: "resolve", eventKind: "upstream", outcome: "not_modified", httpStatus: 304 },
+      { sourceKey, cacheKey: run, sourceDocumentId: sourceId, observedAt: new Date("2026-01-03T00:00:00Z"), operation: "resolve", eventKind: "cache_hit", outcome: "captured", httpStatus: 200 },
+      { sourceKey, cacheKey: run, sourceDocumentId: sourceId, observedAt: new Date("2026-01-04T00:00:00Z"), operation: "resolve", eventKind: "upstream", outcome: "error", httpStatus: 503 },
+    ]);
+    expect((await getReaderDocument(slug))?.checkedAt).toBe("2026-01-02T00:00:00.000Z");
+  });
+
   it("withdraws already-published versions from public reads and search when source permission is blocked", async () => {
     const db = getDb();
     await db.update(sourceDocuments).set({ sourceKey }).where(eq(sourceDocuments.id, sourceId));
@@ -160,6 +199,9 @@ describe.skipIf(!process.env.DATABASE_URL)("Public reading preserves editorial b
     expect(withdrawn.headers.get("cache-control")).toBe("no-store");
     expect(await getApiNormDetail(slug)).toBeUndefined();
     expect(await getApiNormDetail(slug, currentId)).toBeUndefined();
+    expect(await getReaderDocument(slug, currentId)).toBeUndefined();
+    await expect(loadReaderPersonal({ slug, versionId: originalId })).rejects.toThrow("no disponible");
+    await expect(loadReaderRelations({ slug, versionId: currentId })).rejects.toThrow("no disponible");
     expect(await getApiArticle(slug, "articulo-1", originalId)).toBeUndefined();
     expect(await listApiVersions(slug)).toBeUndefined();
     expect(await getVersion(slug, originalId)).toBeUndefined();

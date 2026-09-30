@@ -77,6 +77,7 @@ export async function toggleFavorite(formData: FormData) {
     await db.insert(favorites).values({ userId, ...target });
   }
   revalidatePath(`/normas/${slug.slug}`);
+  revalidatePath(`/normas/${slug.slug}/versiones/${target.versionId}`);
   revalidatePath("/cuenta/favoritos");
 }
 
@@ -96,6 +97,7 @@ export async function createAnnotation(formData: FormData) {
     updatedAt: new Date(),
   });
   revalidatePath(`/normas/${input.slug}`);
+  revalidatePath(`/normas/${input.slug}/versiones/${target.versionId}`);
   revalidatePath("/cuenta/notas");
 }
 

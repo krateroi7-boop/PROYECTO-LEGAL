@@ -18,7 +18,7 @@ test("opens the homepage and searches the local corpus", async ({ page }) => {
 test("navigates to an article anchor", async ({ page }) => {
   await page.goto("/normas/ley-19880");
   await expect(page.getByRole("heading", { name: /Establece bases/ })).toBeVisible();
-  await page.getByRole("link", { name: /^Artículo 2[°º]?$/ }).click();
+  await page.getByRole("navigation", { name: "Índice jurídico" }).getByRole("link", { name: /^Artículo 2[°º]?/ }).click();
   await expect(page).toHaveURL(/\/normas\/ley-19880#articulo-2/);
   await expect(page.locator("#articulo-2")).toBeVisible();
 });
