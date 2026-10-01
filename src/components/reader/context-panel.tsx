@@ -7,9 +7,9 @@ import { readerUrl } from "@/lib/reader/structure";
 import type { ReaderChanges, ReaderPersonal, ReaderRelation, ReaderTarget } from "@/lib/reader/types";
 
 export type ContextTab = "fuente" | "relaciones" | "notas" | "cambios";
-export function ContextPanel({ target, title, tab, setTab, metadata, changes, changesLoading, loadChanges, drafts }: {
+export function ContextPanel({ target, title, tab, setTab, metadata, changes, changesLoading, loadChanges, drafts, changeControls }: {
   target: ReaderTarget; title: string; tab: ContextTab; setTab: (tab: ContextTab) => void; metadata: ReactNode;
-  changes: ReaderChanges | null | undefined; changesLoading: boolean; loadChanges: () => void; drafts: Map<string, string>;
+  changes: ReaderChanges | null | undefined; changesLoading: boolean; loadChanges: () => void; drafts: Map<string, string>; changeControls?: ReactNode;
 }) {
   const [personal, setPersonal] = useState<ReaderPersonal>(), [relations, setRelations] = useState<ReaderRelation[]>(), [error, setError] = useState(""), [busy, setBusy] = useState(false), [reload, setReload] = useState(0);
   const draftKey = `${target.versionId}/${target.stableKey ?? ""}`;
@@ -56,7 +56,7 @@ export function ContextPanel({ target, title, tab, setTab, metadata, changes, ch
       <ul className="reader-notes">{personal.notes.map((note) => <li key={note.id}><p>{note.content}</p><time dateTime={note.updatedAt}>{new Date(note.updatedAt).toLocaleDateString("es-CL")}</time><button disabled={busy} onClick={() => mutate("delete", note.id)}>Eliminar nota</button></li>)}</ul>
       {!personal.notes.length && <p>Aún no tienes notas aquí.</p>}
     </>)}</section>}
-    {tab === "cambios" && <section><h3>Cambios de texto</h3><p>Comparación con la versión publicada anterior. No determina por sí sola los efectos jurídicos.</p>{changesLoading ? <p role="status">Cargando comparación…</p> : changes === null ? <p>No hay una versión anterior publicada para comparar.</p> : changes ? <><p>{changes.from.label} → {changes.to.label}</p><a href={`/normas/${target.slug}/comparar?desde=${changes.from.id}&hasta=${changes.to.id}`}>Abrir comparación completa</a><ul>{changes.changes.filter((c) => c.kind !== "unchanged" && (!target.stableKey || c.key === target.stableKey)).map((c) => <li key={c.key}><a href={`/normas/${target.slug}/comparar?desde=${changes.from.id}&hasta=${changes.to.id}#cambio-${c.key}`}>{c.label} · {{ added: "Agregado", modified: "Modificado", removed: "Eliminado", unchanged: "Sin cambios" }[c.kind]}</a></li>)}</ul></> : <button onClick={loadChanges}>Consultar cambios</button>}</section>}
+    {tab === "cambios" && <section><h3>Cambios de texto</h3>{changeControls}<p>Comparación con la versión publicada anterior. No determina por sí sola los efectos jurídicos.</p>{changesLoading ? <p role="status">Cargando comparación…</p> : changes === null ? <p>No hay una versión anterior publicada para comparar.</p> : changes ? <><p>{changes.from.label} → {changes.to.label}</p><a href={`/normas/${target.slug}/comparar?desde=${changes.from.id}&hasta=${changes.to.id}`}>Abrir comparación completa</a><ul>{changes.changes.filter((c) => c.kind !== "unchanged" && (!target.stableKey || c.key === target.stableKey)).map((c) => <li key={c.key}><a href={`/normas/${target.slug}/comparar?desde=${changes.from.id}&hasta=${changes.to.id}#cambio-${c.key}`}>{c.label} · {{ added: "Agregado", modified: "Modificado", removed: "Eliminado", unchanged: "Sin cambios" }[c.kind]}</a></li>)}</ul></> : <button onClick={loadChanges}>Consultar cambios</button>}</section>}
   </div>;
 }
 

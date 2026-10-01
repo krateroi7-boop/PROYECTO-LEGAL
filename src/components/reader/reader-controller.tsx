@@ -11,18 +11,15 @@ import { ContextPanel, type ContextTab } from "./context-panel";
 
 const noNavigationAction = () => {};
 
-type Props = { slug: string; title: string; version?: ReaderVersion; versions: ReaderVersion[]; nodes: ReaderIndexNode[]; initialTheme: string; initialSize: number; children: ReactNode; header: ReactNode; metadata: ReactNode };
-export function ReaderController({ slug, title, version, versions, nodes, initialTheme, initialSize, children, header, metadata }: Props) {
+type Props = { slug: string; title: string; version?: ReaderVersion; versions: ReaderVersion[]; nodes: ReaderIndexNode[]; initialTheme: string; initialSize: number; children: ReactNode; header: ReactNode; navigation: ReactNode; metadata: ReactNode };
+export function ReaderController({ slug, title, version, versions, nodes, initialTheme, initialSize, children, header, navigation, metadata }: Props) {
   const router = useRouter();
   const root = useRef<HTMLDivElement>(null), dialog = useRef<HTMLDialogElement>(null), restore = useRef<HTMLElement | null>(null);
-  const [theme, setTheme] = useState(initialTheme), [size, setSize] = useState(initialSize), [active, setActive] = useState(""), [selected, setSelected] = useState<string>(), [panel, setPanel] = useState<"index" | "context" | null>(null), [tab, setTab] = useState<ContextTab>("fuente"), [search, setSearch] = useState(false), [status, setStatus] = useState(""), [missing, setMissing] = useState(""), [changes, setChanges] = useState<ReaderChanges | null>(), [changesLoading, setChangesLoading] = useState(false), [showChanges, setShowChanges] = useState(false), [wide, setWide] = useState(false);
+  const [theme, setTheme] = useState(initialTheme), [size, setSize] = useState(initialSize), [active, setActive] = useState(""), [selected, setSelected] = useState<string>(), [panel, setPanel] = useState<"index" | "context" | "more" | "preferences" | "article" | null>(null), [tab, setTab] = useState<ContextTab>("fuente"), [search, setSearch] = useState(false), [status, setStatus] = useState(""), [missing, setMissing] = useState(""), [changes, setChanges] = useState<ReaderChanges | null>(), [changesLoading, setChangesLoading] = useState(false), [showChanges, setShowChanges] = useState(false);
   const drafts = useMemo(() => new Map<string, string>(), []);
   const target = useMemo(() => ({ slug, versionId: version?.id, stableKey: selected }), [slug, version?.id, selected]);
   const map = useMemo(() => new Map(nodes.map((node) => [node.stableKey, node])), [nodes]);
   const loadingChanges = useRef(false);
-  useEffect(() => {
-    const query = matchMedia("(min-width: 1440px)"); const update = () => setWide(query.matches); update(); query.addEventListener("change", update); return () => query.removeEventListener("change", update);
-  }, []);
   useEffect(() => {
     const onHash = () => {
       let key = ""; try { key = decodeURIComponent(location.hash.slice(1)); } catch { return; }
@@ -40,12 +37,15 @@ export function ReaderController({ slug, title, version, versions, nodes, initia
     root.current?.querySelectorAll(".reader-node-heading").forEach((node) => observer.observe(node));
     return () => { observer.disconnect(); window.removeEventListener("hashchange", onHash); };
   }, [map]);
-  const modal = panel === "index" || (panel === "context" && !wide);
+  const modal = panel !== null;
   useEffect(() => {
     const element = dialog.current;
     if (modal && element && !element.open) { restore.current = document.activeElement as HTMLElement; element.showModal(); }
-    else if (!modal && element?.open) { element.close(); restore.current?.focus(); }
+    else if (!modal && element?.open) { element.close(); restore.current?.focus({ preventScroll: true }); }
   }, [modal]);
+  useEffect(() => {
+    if (panel) dialog.current?.querySelector<HTMLButtonElement>(".reader-dialog-close")?.focus({ preventScroll: true });
+  }, [panel]);
   const closePanel = useCallback(() => setPanel(null), []);
   const loadChanges = useCallback(async () => {
     if (!version || changes !== undefined || loadingChanges.current) return;
@@ -70,7 +70,9 @@ export function ReaderController({ slug, title, version, versions, nodes, initia
   }
   function openContext(key?: string, nextTab: ContextTab = "fuente") { setSelected(key); setTab(nextTab); setPanel("context"); if (nextTab === "cambios") void loadChanges(); }
   async function articleAction(action: string, key: string) {
-    if (action === "context" || action === "save") { openContext(key, action === "save" ? "notas" : "relaciones"); return; }
+    if (action === "menu") { setSelected(key); setPanel("article"); return; }
+    if (action === "context" || action === "save" || action === "notes") { openContext(key, action === "context" ? "relaciones" : "notas"); return; }
+    closePanel();
     const href = new URL(readerUrl(slug, version?.id, key), location.origin).href;
     try {
       if (action === "share" && navigator.share) await navigator.share({ title, url: href });
@@ -86,27 +88,52 @@ export function ReaderController({ slug, title, version, versions, nodes, initia
       }
     } catch (error) { if (!(error instanceof DOMException && error.name === "AbortError")) setStatus("No se pudo copiar o compartir. Puedes copiar la dirección desde el enlace del artículo."); }
   }
-  const context = <ContextPanel key={`${selected ?? "norm"}/${tab}`} target={target} title={selected && map.has(selected) ? readerHeading(map.get(selected)!) : title} tab={tab} setTab={setTab} metadata={metadata} changes={changes} changesLoading={changesLoading} loadChanges={() => void loadChanges()} drafts={drafts} />;
+  const changeControls = <><label className="reader-changes-toggle"><input type="checkbox" checked={showChanges} onChange={(event) => { setShowChanges(event.target.checked); if (event.target.checked) void loadChanges(); }} /> Mostrar cambios en el documento</label>{showChanges && <p role="status">{changesLoading ? "Cargando cambios…" : changes === null ? "Sin versión anterior disponible" : changes ? "Cambios textuales respecto de la versión anterior" : "Cambios no disponibles"}</p>}</>;
+  const context = <ContextPanel key={`${selected ?? "norm"}/${tab}`} target={target} title={selected && map.has(selected) ? readerHeading(map.get(selected)!) : title} tab={tab} setTab={setTab} metadata={metadata} changes={changes} changesLoading={changesLoading} loadChanges={() => void loadChanges()} drafts={drafts} changeControls={changeControls} />;
+  const searchRestore = useRef<HTMLElement | null>(null);
+  function openSearch() { searchRestore.current = document.activeElement as HTMLElement; closePanel(); setSearch(true); }
+  function closeSearch() { setSearch(false); searchRestore.current?.focus({ preventScroll: true }); }
   return <div ref={root} className="legal-reader" data-theme={theme} style={{ "--reader-font-size": `${size}px` } as React.CSSProperties} onClick={(event) => {
-    const button = (event.target as HTMLElement).closest<HTMLElement>("[data-reader-action]");
+    const element = event.target as HTMLElement;
+    const button = element.closest<HTMLElement>("[data-reader-action]");
     if (button?.dataset.key && button.dataset.readerAction) void articleAction(button.dataset.readerAction, button.dataset.key);
   }}>
     <a className="reader-skip" href="#reader-text">Saltar al texto de la norma</a>
-    {header}
-    <div className="reader-toolbar" aria-label="Herramientas de lectura">
-      <nav aria-label="Secciones de la norma"><a href="#reader-text">Texto</a><a href={`/normas/${slug}/versiones`} aria-label="Historial">Versiones</a><button onClick={() => openContext(undefined, "cambios")}>Cambios</button><button onClick={() => openContext(undefined, "relaciones")}>Relaciones</button></nav>
-      <div className="reader-preferences"><label>Tamaño <select aria-label="Tamaño del texto" value={size} onChange={(event) => preference("size", event.target.value)}>{[16, 18, 20, 22].map((n) => <option key={n} value={n}>{n}</option>)}</select></label><label>Tema <select aria-label="Tema" value={theme} onChange={(event) => preference("theme", event.target.value)}><option value="system">Sistema</option><option value="light">Claro</option><option value="dark">Oscuro</option></select></label><button onClick={() => { setSearch((value) => !value); closePanel(); }}>Buscar en la norma</button><button onClick={() => openContext()}>Contexto</button></div>
-    </div>
-    {search && <InDocumentSearch root={root} close={() => setSearch(false)} />}
-    <div className="reader-version-bar">
-      {version && <><label>Versión <select aria-label="Seleccionar versión" value={version.id} onChange={(event) => router.push(readerUrl(slug, event.target.value, active || undefined))}>{versions.map((v) => <option value={v.id} key={v.id}>{v.label}{v.isCurrent ? " · Actual" : ""}</option>)}</select></label><span>{version.isCurrent ? "Versión de consulta actual" : "Versión histórica"}</span>{!version.isCurrent && <a href={readerUrl(slug, undefined, active || undefined)}>Volver a la versión actual</a>}</>}
-      <label className="reader-changes-toggle"><input type="checkbox" checked={showChanges} onChange={(event) => { setShowChanges(event.target.checked); if (event.target.checked) void loadChanges(); }} /> Mostrar cambios</label>
-      {showChanges && <span role="status">{changesLoading ? "Cargando cambios…" : changes === null ? "Sin versión anterior disponible" : changes ? "Cambios textuales respecto de la versión anterior" : "Cambios no disponibles"}</span>}
-    </div>
-    {missing && <p className="reader-notice" role="status">El artículo «{missing}» no existe en esta versión. <a href={readerUrl(slug, undefined, missing)}>Buscarlo en la versión actual</a> · <button onClick={() => router.back()}>Volver a la versión anterior</button></p>}
+    {navigation}
+    {search && <InDocumentSearch root={root} close={closeSearch} />}
+    {missing && <p className="reader-notice" role="status">El artículo solicitado no existe en esta versión. <a href={readerUrl(slug, undefined, missing)}>Buscarlo en la versión actual</a> · <button onClick={() => router.back()}>Volver a la versión anterior</button></p>}
     <p className="reader-status" role="status">{status}</p>
-    <div className="reader-layout"><aside className="reader-index-desktop"><TableOfContents nodes={nodes} active={active} onNavigate={noNavigationAction} /></aside><main id="reader-text" tabIndex={-1} className="reader-body">{children}</main><aside className="reader-context-desktop" aria-label="Contexto de la norma">{wide ? context : <div className="reader-context-content"><h2>Fuente y contexto</h2>{metadata}</div>}</aside></div>
-    <nav className="reader-mobile-bar" aria-label="Herramientas móviles"><button onClick={() => { setSearch(false); setPanel("index"); }}>Índice</button><button onClick={() => { closePanel(); setSearch(true); }}>Buscar</button><button onClick={() => { setSearch(false); openContext(active || undefined); }}>Contexto</button></nav>
-    <dialog ref={dialog} className="reader-dialog" onCancel={closePanel} onClose={closePanel}><button className="reader-dialog-close" onClick={closePanel} aria-label="Cerrar panel">Cerrar ×</button>{panel === "index" ? <TableOfContents nodes={nodes} active={active} onNavigate={closePanel} /> : panel === "context" && !wide ? context : null}</dialog>
+    <div className="reader-layout">
+      <aside className="reader-index-desktop"><TableOfContents nodes={nodes} active={active} onNavigate={noNavigationAction} /></aside>
+      <main id="reader-text" tabIndex={-1} className="reader-body">
+        {header}
+        <nav className="reader-document-tools" aria-label="Herramientas de lectura">
+          <button className="reader-search-trigger" onClick={openSearch}>Buscar en esta norma</button>
+          <a href={`/normas/${slug}/versiones`}>Historial</a>
+          <a href="#fuente" onClick={(event) => { event.preventDefault(); openContext(); }}>Fuente</a>
+          <button aria-label="Preferencias de lectura" aria-haspopup="dialog" onClick={() => setPanel("preferences")}>Aa</button>
+          <button aria-haspopup="dialog" onClick={() => setPanel("more")}>Más</button>
+        </nav>
+        {version && !version.isCurrent && <p className="reader-historical-return"><a href={readerUrl(slug, undefined, active || undefined)}>Volver a la versión actual</a></p>}
+        {children}
+      </main>
+    </div>
+    <nav className="reader-mobile-bar" aria-label="Herramientas móviles"><button onClick={() => { setSearch(false); setPanel("index"); }}>Índice</button><button onClick={openSearch}>Buscar</button><button onClick={() => setPanel("more")}>Más</button></nav>
+    <dialog ref={dialog} className="reader-dialog" data-panel={panel ?? undefined} aria-label={panel === "index" ? "Índice de la norma" : panel === "preferences" ? "Preferencias de lectura" : panel === "article" ? "Acciones del artículo" : panel === "context" ? "Contexto de la norma" : "Herramientas de la norma"} onCancel={closePanel} onClose={closePanel}>
+      <button className="reader-dialog-close" onClick={closePanel} aria-label="Cerrar panel">Cerrar ×</button>
+      {panel === "index" && <TableOfContents nodes={nodes} active={active} onNavigate={closePanel} />}
+      {panel === "context" && context}
+      {panel === "preferences" && <section className="reader-preferences"><h2>Preferencias de lectura</h2><fieldset><legend>Tamaño del texto</legend><div className="reader-preference-options"><button aria-label="Reducir tamaño del texto" disabled={size <= 16} onClick={() => preference("size", String(size - 2))}>A−</button><button aria-label="Restablecer tamaño del texto" onClick={() => preference("size", "18")}>A</button><button aria-label="Aumentar tamaño del texto" disabled={size >= 22} onClick={() => preference("size", String(size + 2))}>A+</button><output aria-label="Tamaño actual">{size} px</output></div></fieldset><fieldset><legend>Tema</legend><div className="reader-preference-options">{(["system", "light", "dark"] as const).map((value) => <button key={value} aria-pressed={theme === value} onClick={() => preference("theme", value)}>{{ system: "Sistema", light: "Claro", dark: "Oscuro" }[value]}</button>)}</div></fieldset></section>}
+      {panel === "article" && selected && <section className="reader-action-menu"><h2>{map.has(selected) ? readerHeading(map.get(selected)!) : "Artículo"}</h2>{(["copy", "link", "share", "save", "notes", "context"] as const).map((action) => <button key={action} onClick={() => void articleAction(action, selected)}>{{ copy: "Copiar texto", link: "Copiar enlace", share: "Compartir", save: "Guardar / quitar de favoritos", notes: "Añadir / ver notas", context: "Ver relaciones / contexto" }[action]}</button>)}</section>}
+      {panel === "more" && <section className="reader-action-menu"><h2>Herramientas de la norma</h2>
+        {version && <label className="reader-version-picker">Versión consultada<select aria-label="Seleccionar versión" value={version.id} onChange={(event) => { closePanel(); router.push(readerUrl(slug, event.target.value, active || undefined)); }}>{versions.map((v) => <option value={v.id} key={v.id}>{v.label} · {v.dateLabel}</option>)}</select></label>}
+        <a href={`/normas/${slug}/versiones`}>Historial de versiones</a>
+        <button onClick={() => openContext(undefined, "notas")}>Guardar norma / mis notas</button>
+        <button onClick={() => openContext(undefined, "cambios")}>Cambios</button>
+        <button onClick={() => openContext(undefined, "relaciones")}>Relaciones</button>
+        <button onClick={() => openContext()}>Fuente y procedencia</button>
+        <button onClick={() => setPanel("preferences")}>Preferencias de lectura</button>
+      </section>}
+    </dialog>
   </div>;
 }

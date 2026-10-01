@@ -32,7 +32,7 @@ export const TableOfContents = memo(function TableOfContents({ nodes, active, on
     function branch(items: IndexBranch[]) {
       return <ol>{items.map((node) => <li key={node.stableKey}>
         <div className="reader-index-row">
-          {node.children.length > 0 && <button type="button" aria-label={`${collapsed.has(node.stableKey) ? "Expandir" : "Contraer"} ${node.label}`} aria-expanded={!collapsed.has(node.stableKey)} onClick={() => toggle(node.stableKey)}>{collapsed.has(node.stableKey) ? "+" : "−"}</button>}
+          {node.children.length > 0 && <button type="button" aria-label={`${collapsed.has(node.stableKey) ? "Expandir" : "Contraer"} ${node.label}`} aria-expanded={!collapsed.has(node.stableKey)} onClick={() => toggle(node.stableKey)}>{collapsed.has(node.stableKey) ? "▸" : "▾"}</button>}
           <a href={`#${encodeURIComponent(node.stableKey)}`} onClick={onNavigate}>{readerHeading(node)}</a>
         </div>
         {node.children.length > 0 && !collapsed.has(node.stableKey) && branch(node.children)}
@@ -40,5 +40,5 @@ export const TableOfContents = memo(function TableOfContents({ nodes, active, on
     }
     return branch(tree);
   }, [tree, collapsed, onNavigate, toggle]);
-  return <nav ref={navigation} className="reader-index" aria-label="Índice jurídico"><h2>En esta norma</h2>{content}</nav>;
+  return <nav ref={navigation} className="reader-index" aria-label="Índice jurídico"><h2>Índice</h2>{content}</nav>;
 });

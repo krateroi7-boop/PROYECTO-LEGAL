@@ -28,9 +28,9 @@ test("opens version history and comparison", async ({ page }) => {
   await page.getByRole("link", { name: "Historial" }).click();
   await expect(page).toHaveURL(/\/normas\/ley-19880\/versiones$/);
   await expect(page.getByRole("heading", { name: /Historial de Ley 19.880/ })).toBeVisible();
-  await page.getByRole("listitem").filter({ hasText: "Versión de consulta actual" }).getByRole("link").click();
+  await page.getByRole("listitem").filter({ hasText: "Versión de consulta actual" }).getByRole("link", { name: "Ver texto", exact: true }).click();
   await expect(page).toHaveURL(/\/versiones\//);
-  await expect(page.getByText(/Versión de consulta actual/)).toBeVisible();
+  await expect(page.locator(".reader-header-meta")).toContainText("Versión de consulta actual");
   await page.goto("/normas/ley-19880/comparar");
   await expect(page.getByRole("heading", { name: /Cambios en/ })).toBeVisible();
   await expect(page.getByText("Modificados", { exact: true })).toBeVisible();

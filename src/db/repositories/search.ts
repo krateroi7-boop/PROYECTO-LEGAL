@@ -1,7 +1,7 @@
 import { and, desc, eq, ilike, sql } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import { publicVersionCondition } from "@/db/public-visibility";
-import { normVersions, searchDocuments } from "@/db/schema";
+import { normNodes, normVersions, searchDocuments } from "@/db/schema";
 import type { SearchInput, SearchResult } from "@/search/types";
 
 export async function searchPersisted(input: SearchInput): Promise<SearchResult[]> {
@@ -27,13 +27,15 @@ export async function searchPersisted(input: SearchInput): Promise<SearchResult[
       number: searchDocuments.number,
       title: searchDocuments.title,
       type: searchDocuments.type,
-      nodeKey: searchDocuments.nodeLabel,
+      nodeKey: normNodes.stableKey,
+      nodeLabel: normNodes.label,
       versionId: searchDocuments.versionId,
       content: searchDocuments.content,
       rank,
     })
     .from(searchDocuments)
     .innerJoin(normVersions, eq(normVersions.id, searchDocuments.versionId))
+    .leftJoin(normNodes, and(eq(normNodes.id, searchDocuments.nodeId), eq(normNodes.versionId, searchDocuments.versionId)))
     .where(and(where, publicVersionCondition()))
     .orderBy(desc(rank), searchDocuments.title)
     .offset(input.offset ?? 0)
@@ -41,7 +43,7 @@ export async function searchPersisted(input: SearchInput): Promise<SearchResult[
 
   return rows.map((row) => ({
     norm: { slug: row.slug, number: row.number, title: row.title, type: row.type },
-    node: row.nodeKey ? { stableKey: row.nodeKey, label: row.nodeKey } : undefined,
+    node: row.nodeKey ? { stableKey: row.nodeKey, label: row.nodeLabel ?? row.nodeKey } : undefined,
     versionId: row.versionId,
     highlight: row.content.slice(0, 220),
     rank: Number(row.rank),

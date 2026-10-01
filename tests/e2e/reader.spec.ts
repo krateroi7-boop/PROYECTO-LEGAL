@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { closeDb, getDb } from "@/db/client";
@@ -11,8 +11,8 @@ test.beforeAll(async () => {
   const [norm] = await db.insert(norms).values({ slug: fixture.slug, type: "Ley", number: "READER-TEST", title: "Documento sintético de lectura", shortTitle: "Prueba del visor", description: "Datos sintéticos de prueba", status: "desconocida", topics: [], publishedAt: new Date("2000-01-01"), updatedAt: new Date() }).returning();
   fixture.norm = norm.id;
   const versions = await db.insert(normVersions).values([
-    { normId: norm.id, versionLabel: "Original", validFrom: new Date("2000-01-01"), publicationStatus: "published" },
-    { normId: norm.id, versionLabel: "Actual", validFrom: new Date("2020-01-01"), publicationStatus: "published", isCurrent: true },
+    { normId: norm.id, versionLabel: "fixture-original-private-label", validFrom: new Date("2000-01-01"), publicationStatus: "published" },
+    { normId: norm.id, versionLabel: "fixture-current-private-label", validFrom: new Date("2020-01-01"), publicationStatus: "published", isCurrent: true },
     { normId: norm.id, versionLabel: "Pendiente", publicationStatus: "pending_review" },
   ]).returning();
   [fixture.original, fixture.current, fixture.pending] = versions.map((v) => v.id);
@@ -31,7 +31,7 @@ test.afterAll(async () => {
 
 test("reader searches loaded text without network and clears highlights", async ({ page }) => {
   await page.goto("/normas/ley-19880");
-  await page.getByRole("button", { name: "Buscar en la norma" }).click();
+  await page.getByRole("button", { name: "Buscar en esta norma" }).click();
   const network: string[] = [];
   page.on("request", (request) => {
     // Link may prefetch the header's destinations after hydration; those requests
@@ -53,17 +53,21 @@ test("reader searches loaded text without network and clears highlights", async 
 test("reader copies legal text with pinned provenance and applies scoped preferences", async ({ page, context }) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await page.goto("/normas/ley-19880");
-  await page.getByLabel("Tamaño del texto").selectOption("22");
-  await page.getByLabel("Tema", { exact: true }).selectOption("dark");
+  await page.getByRole("button", { name: "Preferencias de lectura", exact: true }).click();
+  await page.getByRole("button", { name: "Aumentar tamaño del texto" }).click();
+  await page.getByRole("button", { name: "Aumentar tamaño del texto" }).click();
+  await page.getByRole("button", { name: "Oscuro", exact: true }).click();
+  await page.getByRole("button", { name: "Cerrar panel" }).click();
   await expect(page.locator(".legal-reader")).toHaveAttribute("data-theme", "dark");
-  await page.locator("#articulo-1").getByRole("button", { name: "Copiar texto", exact: true }).click();
+  await articleAction(page, "articulo-1", "Copiar texto");
   await expect(page.getByRole("status").filter({ hasText: "Texto copiado" })).toBeVisible();
   const copied = await page.evaluate(() => navigator.clipboard.readText());
   expect(copied).toContain("Artículo 1");
   expect(copied).toMatch(/\/normas\/ley-19880\/versiones\/[^\s]+#articulo-1/);
   expect(copied).not.toContain("Copiar enlace");
+  expect(copied).not.toContain("fixture-");
   await page.reload();
-  await expect(page.getByLabel("Tamaño del texto")).toHaveValue("22");
+  await expect(page.locator(".legal-reader")).toHaveCSS("--reader-font-size", "22px");
   await expect(page.locator(".legal-reader")).toHaveAttribute("data-theme", "dark");
 });
 
@@ -76,26 +80,30 @@ test("mobile uses a single focus-trapped panel and preserves the selected articl
   await dialog.getByRole("link", { name: /^Artículo 2/ }).click();
   await expect(dialog).not.toBeVisible();
   await expect(page).toHaveURL(/#articulo-2$/);
-  await page.locator("#articulo-2").getByRole("button", { name: "Guardar", exact: true }).click();
+  await articleAction(page, "articulo-2", "Guardar / quitar de favoritos");
   await expect(dialog).toBeVisible();
   const login = dialog.getByRole("link", { name: "Inicia sesión", exact: true });
   await expect(login).toHaveAttribute("href", /callbackUrl=.*versiones.*%23articulo-2/);
   await page.keyboard.press("Escape");
   await expect(dialog).not.toBeVisible();
-  await expect(page.locator("#articulo-2").getByRole("button", { name: "Guardar", exact: true })).toBeFocused();
+  await expect(page.locator("#articulo-2").getByRole("button", { name: /^Acciones de Artículo 2[°º]?$/ })).toBeFocused();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
 test("historical navigation retains missing anchors and highlights only real changes", async ({ page }) => {
   test.skip(!process.env.DATABASE_URL, "Requires isolated PostgreSQL fixtures.");
   await page.goto(`/normas/${fixture.slug}#articulo-2`);
-  await page.getByLabel("Mostrar cambios").check();
+  await page.locator(".reader-document-tools").getByRole("button", { name: "Más", exact: true }).click();
+  await page.getByRole("button", { name: "Cambios", exact: true }).click();
+  await page.getByLabel("Mostrar cambios en el documento").check();
   await expect(page.locator("#articulo-1 [data-change-badge]")).toHaveText("Modificado");
   await expect(page.locator("#articulo-2 [data-change-badge]")).toHaveText("Agregado");
+  await page.getByRole("button", { name: "Cerrar panel" }).click();
+  await page.locator(".reader-document-tools").getByRole("button", { name: "Más", exact: true }).click();
   await page.getByLabel("Seleccionar versión").selectOption(fixture.original);
   await expect(page).toHaveURL(/#articulo-2$/);
   await expect(page.getByRole("status").filter({ hasText: "no existe en esta versión" })).toBeVisible();
-  await expect(page.getByText("Versión histórica", { exact: true })).toBeVisible();
+  await expect(page.locator(".reader-header-meta")).toContainText("Versión histórica");
   await expect(page.locator("#articulo-2")).toHaveCount(0);
   expect((await page.request.get(`/normas/${fixture.slug}/versiones/${fixture.pending}`)).status()).toBe(404);
   expect((await page.request.get(`/api/v1/normas/${fixture.slug}/versiones/${fixture.pending}`)).status()).toBe(404);
@@ -110,6 +118,7 @@ test("hierarchical index collapses navigation without hiding legal text", async 
   await expect(page.locator("#articulo-1")).toBeVisible();
   await page.evaluate(() => { location.hash = "articulo-2"; });
   await expect(index.getByRole("link", { name: "Artículo 2", exact: true })).toBeVisible();
+  await expect(index.getByRole("link", { name: "Artículo 2", exact: true })).toHaveAttribute("aria-current", "location");
 });
 
 test("authenticated reader retains article drafts and manages version-specific notes and favorites", async ({ page, context }) => {
@@ -120,13 +129,13 @@ test("authenticated reader retains article drafts and manages version-specific n
   try {
     await context.addCookies([{ name: "authjs.session-token", value: token, domain: "127.0.0.1", path: "/", httpOnly: true, sameSite: "Lax" }]);
     await page.goto(`/normas/${fixture.slug}`);
-    await page.locator("#articulo-1").getByRole("button", { name: "Guardar", exact: true }).click();
+    await articleAction(page, "articulo-1", "Guardar / quitar de favoritos");
     await page.getByLabel("Anotación privada").fill("Mi borrador privado");
     await page.getByRole("button", { name: "Cerrar panel" }).click();
-    await page.locator("#articulo-2").getByRole("button", { name: "Guardar", exact: true }).click();
+    await articleAction(page, "articulo-2", "Guardar / quitar de favoritos");
     await expect(page.getByLabel("Anotación privada")).toHaveValue("");
     await page.getByRole("button", { name: "Cerrar panel" }).click();
-    await page.locator("#articulo-1").getByRole("button", { name: "Guardar", exact: true }).click();
+    await articleAction(page, "articulo-1", "Guardar / quitar de favoritos");
     await expect(page.getByLabel("Anotación privada")).toHaveValue("Mi borrador privado");
     let releaseSave = () => {}, saveReturned = () => {};
     const gate = new Promise<void>((resolve) => { releaseSave = resolve; });
@@ -145,12 +154,28 @@ test("authenticated reader retains article drafts and manages version-specific n
     await expect(page.locator(".reader-notes")).toContainText("Mi borrador privado");
     await expect(page.getByLabel("Anotación privada")).toHaveValue("Nuevo borrador escrito durante el guardado");
     await page.unroute("**/normas/**");
+    await page.screenshot({ path: ".staging/reader-redesign/private-notes.png" });
     await page.getByRole("button", { name: "Guardar en favoritos", exact: true }).click();
     await expect(page.getByRole("button", { name: "Quitar de favoritos", exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Quitar de favoritos", exact: true }).click();
     await expect(page.getByRole("button", { name: "Guardar en favoritos", exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Eliminar nota", exact: true }).click();
     await expect(page.locator(".reader-notes li")).toHaveCount(0);
+    await page.getByLabel("Anotación privada").fill("Nota para mi cuenta");
+    await page.getByRole("button", { name: "Guardar nota", exact: true }).click();
+    await expect(page.locator(".reader-notes")).toContainText("Nota para mi cuenta");
+    await page.getByRole("button", { name: "Guardar en favoritos", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Quitar de favoritos", exact: true })).toBeVisible();
+    await page.screenshot({ path: ".staging/reader-redesign/saved-favorite.png" });
+    for (const path of ["favoritos", "notas"]) {
+      await page.goto(`/cuenta/${path}`);
+      await expect(page.getByText("Ley READER-TEST", { exact: true })).toBeVisible();
+      await expect(page.getByRole("link", { name: "Abrir artículo" })).toHaveAttribute("href", `/normas/${fixture.slug}/versiones/${fixture.current}#articulo-1`);
+      expect(await page.locator("main").innerText()).not.toMatch(/fixture-|[0-9a-f]{8}-[0-9a-f]{4}-/);
+      if (path === "notas") await expect(page.getByText("Nota para mi cuenta", { exact: true })).toBeVisible();
+      await page.getByRole("button", { name: "Eliminar", exact: true }).click();
+      await expect(page.getByRole("link", { name: "Abrir artículo" })).toHaveCount(0);
+    }
   } finally { await db.delete(users).where(eq(users.id, userId)); }
 });
 
@@ -166,7 +191,7 @@ test("reader keeps published legal text accessible without JavaScript", async ({
 test("search fallback supports keyboard navigation without Custom Highlight", async ({ page }) => {
   await page.addInitScript(() => { Reflect.deleteProperty(globalThis, "Highlight"); });
   await page.goto("/normas/ley-19880");
-  await page.getByRole("button", { name: "Buscar en la norma" }).click();
+  await page.getByRole("button", { name: "Buscar en esta norma" }).click();
   const input = page.getByRole("textbox", { name: "Buscar dentro de la norma", exact: true });
   await input.fill("administracion");
   const status = page.locator(".reader-search [role=status]");
@@ -183,7 +208,10 @@ test("search fallback supports keyboard navigation without Custom Highlight", as
 test("reader reflows at narrow widths with enlarged text", async ({ page }) => {
   await page.setViewportSize({ width: 640, height: 480 });
   await page.goto("/normas/ley-19880");
-  await page.getByLabel("Tamaño del texto").selectOption("22");
+  await page.getByRole("button", { name: "Preferencias de lectura", exact: true }).click();
+  await page.getByRole("button", { name: "Aumentar tamaño del texto" }).click();
+  await page.getByRole("button", { name: "Aumentar tamaño del texto" }).click();
+  await page.getByRole("button", { name: "Cerrar panel" }).click();
   for (const width of [640, 320]) {
     await page.setViewportSize({ width, height: 600 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -194,5 +222,93 @@ test("reader reflows at narrow widths with enlarged text", async ({ page }) => {
     expect(await page.evaluate(() => Boolean(document.activeElement?.closest("dialog")))).toBe(true);
     await page.keyboard.press("Escape");
     await expect(page.getByRole("button", { name: "Índice", exact: true })).toBeFocused();
+  }
+});
+
+async function articleAction(page: Page, key: string, name: string) {
+  await page.locator(`[id="${key}"]`).getByRole("button", { name: /^Acciones de/ }).click();
+  await page.getByRole("dialog").getByRole("button", { name, exact: true }).click();
+}
+
+test("document-first layout hides secondary tools and supports keyboard drawers", async ({ page }) => {
+  test.skip(!process.env.DATABASE_URL, "Requires isolated PostgreSQL fixtures.");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`/normas/${fixture.slug}`);
+  await expect(page.locator("dialog")).not.toBeVisible();
+  await expect(page.getByRole("combobox")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Copiar texto", exact: true })).toHaveCount(0);
+  await expect(page.locator(".reader-context-desktop")).toHaveCount(0);
+  expect(await page.locator("main").innerText()).not.toContain("fixture-");
+  const first = page.locator("#articulo-1");
+  expect((await first.boundingBox())!.y).toBeLessThan(700);
+  const before = await first.boundingBox();
+  const menu = first.getByRole("button", { name: "Acciones de Artículo 1" });
+  await menu.focus(); await page.keyboard.press("Enter");
+  await expect(page.getByRole("dialog", { name: "Acciones del artículo" })).toBeVisible();
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("button", { name: "Copiar texto", exact: true })).toBeFocused();
+  await page.keyboard.press("Escape"); await expect(menu).toBeFocused();
+  await page.getByRole("link", { name: "Fuente", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Contexto de la norma" })).toBeVisible();
+  expect((await first.boundingBox())!.width).toBe(before!.width);
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("link", { name: "Fuente", exact: true })).toBeFocused();
+  await page.getByRole("button", { name: "Preferencias de lectura", exact: true }).focus();
+  await page.keyboard.press("Enter");
+  await page.getByRole("button", { name: "Oscuro", exact: true }).focus(); await page.keyboard.press("Enter");
+  await expect(page.locator(".legal-reader")).toHaveAttribute("data-theme", "dark");
+  await page.getByRole("button", { name: "Sistema", exact: true }).click();
+  await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
+  await expect(page.locator(".legal-reader")).toHaveCSS("color-scheme", "dark");
+  await expect(page.locator("html")).toHaveCSS("scroll-behavior", "auto");
+  await page.emulateMedia({ colorScheme: "light" });
+  await expect(page.locator(".legal-reader")).toHaveCSS("color-scheme", "light");
+  await page.keyboard.press("Escape");
+  // 200% browser zoom at 1280px corresponds to a 640 CSS-pixel layout viewport.
+  await page.setViewportSize({ width: 640, height: 450 });
+  await page.locator("body").evaluate((element) => { element.style.zoom = "2"; });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.getByRole("navigation", { name: "Herramientas móviles" }).getByRole("button", { name: "Más", exact: true }).click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await page.keyboard.press("Escape");
+});
+
+
+test("reader visual states reflow across desktop, tablet and mobile", async ({ page }) => {
+  await page.goto("/normas/ley-19880");
+  for (const width of [1920, 1440, 1366, 768, 640, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: `.staging/reader-redesign/reader-${width}.png` });
+  }
+  await page.getByRole("button", { name: "Índice", exact: true }).click();
+  await page.screenshot({ path: ".staging/reader-redesign/mobile-index.png" });
+  await page.keyboard.press("Escape");
+  await page.locator("#articulo-1").getByRole("button", { name: /^Acciones de/ }).click();
+  await page.screenshot({ path: ".staging/reader-redesign/mobile-article-menu.png" });
+  await page.keyboard.press("Escape");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.getByRole("button", { name: "Preferencias de lectura", exact: true }).click();
+  await page.getByRole("button", { name: "Oscuro", exact: true }).click();
+  await page.keyboard.press("Escape");
+  await page.evaluate(() => scrollTo({ top: 0, behavior: "instant" }));
+  await page.screenshot({ path: ".staging/reader-redesign/desktop-dark.png" });
+  await page.getByRole("link", { name: "Fuente", exact: true }).click();
+  await page.screenshot({ path: ".staging/reader-redesign/desktop-source.png" });
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Buscar en esta norma", exact: true }).click();
+  await page.getByRole("textbox", { name: "Buscar dentro de la norma", exact: true }).fill("administracion");
+  await expect(page.locator(".reader-search [role=status]")).toContainText("1 de");
+  await page.screenshot({ path: ".staging/reader-redesign/desktop-search.png" });
+  if (fixture.original) {
+    await page.goto(`/normas/${fixture.slug}/versiones/${fixture.original}#articulo-1`);
+    await expect(page.locator("#articulo-1")).toBeVisible();
+    await page.screenshot({ path: ".staging/reader-redesign/historical.png" });
+    await page.goto(`/normas/${fixture.slug}/versiones`);
+    await expect(page.locator("main")).not.toContainText("fixture-");
+    await page.screenshot({ path: ".staging/reader-redesign/history.png" });
+    await page.goto(`/normas/${fixture.slug}/comparar`);
+    await expect(page.locator("main")).not.toContainText("fixture-");
+    await page.screenshot({ path: ".staging/reader-redesign/comparison.png" });
   }
 });

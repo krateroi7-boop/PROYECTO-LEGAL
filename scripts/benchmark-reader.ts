@@ -27,7 +27,7 @@ async function main() {
     const started = performance.now();
     const response = await page.goto(`http://127.0.0.1:3000/normas/${slug}`, { timeout: 120000 });
     const navigationMs = performance.now() - started;
-    await page.locator(".reader-preferences button").filter({ hasText: "Buscar en la norma" }).click({ timeout: 120000 });
+    await page.getByRole("button", { name: "Buscar en esta norma", exact: true }).click({ timeout: 120000 });
     const readyMs = performance.now() - started;
     const client = await page.context().newCDPSession(page);
     await client.send("Performance.enable");

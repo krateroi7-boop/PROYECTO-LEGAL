@@ -14,6 +14,7 @@ import { createAnnotation, toggleFavorite, deleteAnnotationAction } from "@/app/
 import { getReaderDocument, getReaderRelations, getReaderVersions } from "@/lib/reader/data";
 import { loadReaderPersonal, loadReaderRelations, loadReaderChanges } from "@/app/actions/reader";
 import { searchPersisted } from "@/db/repositories/search";
+import { listFavorites, listAnnotations } from "@/db/repositories/users";
 
 const actor = vi.hoisted(() => ({ id: "" }));
 vi.mock("@/auth", () => ({ auth: async () => ({ user: { id: actor.id } }) }));
@@ -93,6 +94,15 @@ describe.skipIf(!process.env.DATABASE_URL)("Public reading preserves editorial b
     expect(await listApiRelations(hiddenSlug)).toBeUndefined();
   });
 
+  it("search returns the real stableKey when it differs from the article label", async () => {
+    const [node] = await getDb().select().from(normNodes).where(eq(normNodes.versionId, originalId));
+    await getDb().insert(searchDocuments).values({ normId: normIds[0], versionId: originalId, nodeId: node.id, documentType: "node", slug, number: `${run}-0`, type: "Ley", title: "Norma pública", nodeLabel: node.label, topics: "", content: node.text });
+    const [result] = await searchPersisted({ number: `${run}-0`, article: "1" });
+    expect(result.node).toEqual({ stableKey: "articulo-1", label: "Artículo 1" });
+    expect(result.versionId).toBe(originalId);
+    expect((await getApiArticle(slug, result.node!.stableKey, result.versionId!))?.text).toBe("Texto original");
+  });
+
   it("rejects pending versions even when the caller knows their UUID", async () => {
     expect(await getApiNormDetail(slug, draftId)).toBeUndefined();
     expect(await getApiArticle(slug, "articulo-1", draftId)).toBeUndefined();
@@ -168,6 +178,15 @@ describe.skipIf(!process.env.DATABASE_URL)("Public reading preserves editorial b
     expect((await loadReaderPersonal({ slug, versionId: originalId, stableKey: "articulo-1" })).notes).toEqual([]);
     actor.id = owner;
     expect((await loadReaderPersonal({ slug, versionId: originalId, stableKey: "articulo-1" })).notes).toHaveLength(1);
+    const [favorite] = await listFavorites(owner), [note] = await listAnnotations(owner);
+    expect(favorite.context?.article).toBe("Artículo 1");
+    expect(favorite.context?.href).toBe(`/normas/${slug}/versiones/${originalId}#articulo-1`);
+    expect(note.context?.version?.dateLabel).toBe("1 de enero de 2000");
+    expect(await listFavorites("unrelated-reader")).toEqual([]);
+    expect(await listAnnotations("unrelated-reader")).toEqual([]);
+    const [general] = await getDb().insert(favorites).values({ userId: owner, normId: normIds[0] }).returning();
+    expect((await listFavorites(owner)).find((f) => f.id === general.id)?.context?.href).toBe(`/normas/${slug}`);
+    await getDb().delete(favorites).where(eq(favorites.id, general.id));
   });
 
   it("reports successful checks of the exact captured representation, excluding cache events and failures", async () => {
@@ -217,5 +236,7 @@ describe.skipIf(!process.env.DATABASE_URL)("Public reading preserves editorial b
     await expect(createAnnotation(form)).rejects.toThrow("publicada");
     // Existing notes survive policy changes and remain private to their owner.
     expect(await db.select().from(annotations).where(eq(annotations.userId, actor.id))).toHaveLength(1);
+    expect((await listAnnotations(actor.id))[0].context).toBeNull();
+    expect((await listFavorites(actor.id))[0].context).toBeNull();
   });
 });

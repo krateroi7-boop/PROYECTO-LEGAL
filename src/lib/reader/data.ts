@@ -10,16 +10,16 @@ import { getVerifiedRelations } from "@/lib/relations-data";
 import { compareVersions } from "@/domain/versioning/compare";
 import type { ReaderChanges, ReaderDocument, ReaderRelation, ReaderVersion } from "./types";
 import { readerUrl } from "./structure";
+import { presentVersion, readerDate } from "./presentation";
 
-export const readerDate = (date: string | Date) => new Date(date).toLocaleDateString("es-CL", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+export { readerDate } from "./presentation";
 const versionSummary = (v: { id: string; versionLabel: string; isCurrent: boolean; validFrom: Date | null; validTo: Date | null; sourceVersionDate: Date | null }): ReaderVersion => ({
-  id: v.id, label: v.versionLabel, isCurrent: v.isCurrent, validFrom: v.validFrom?.toISOString() ?? null, validTo: v.validTo?.toISOString() ?? null, sourceVersionDate: v.sourceVersionDate?.toISOString() ?? null,
-  dateLabel: v.sourceVersionDate ? `Fecha declarada: ${readerDate(v.sourceVersionDate)}` : v.validFrom ? `Desde ${readerDate(v.validFrom)}` : "Fecha de versión no informada",
+  id: v.id, ...presentVersion(v), isCurrent: v.isCurrent, validFrom: v.validFrom?.toISOString() ?? null, validTo: v.validTo?.toISOString() ?? null, sourceVersionDate: v.sourceVersionDate?.toISOString() ?? null,
 });
 
 /** Summaries only: never load every historical document to draw a version selector. */
 export async function getReaderVersions(slug: string): Promise<ReaderVersion[]> {
-  if (!process.env.DATABASE_URL) return (await getVersions(slug)).map((v) => ({ id: v.id, label: v.label, isCurrent: v.isCurrent, dateLabel: v.validFrom, validFrom: null, validTo: null, sourceVersionDate: null }));
+  if (!process.env.DATABASE_URL) return (await getVersions(slug)).map((v) => ({ id: v.id, ...presentVersion(v), isCurrent: v.isCurrent, dateLabel: v.validFrom, validFrom: null, validTo: null, sourceVersionDate: null }));
   const rows = await getDb().select({ id: normVersions.id, versionLabel: normVersions.versionLabel, isCurrent: normVersions.isCurrent, validFrom: normVersions.validFrom, validTo: normVersions.validTo, sourceVersionDate: normVersions.sourceVersionDate })
     .from(normVersions).innerJoin(norms, eq(norms.id, normVersions.normId))
     .where(and(eq(norms.slug, slug), publicVersionCondition()))

@@ -2,10 +2,17 @@ import { describe, expect, it } from "vitest";
 import { buildReaderTree, readerUrl } from "@/lib/reader/structure";
 import { findTextMatches, searchBlocks } from "@/lib/reader/search";
 import type { ReaderIndexNode } from "@/lib/reader/types";
+import { presentVersion } from "@/lib/reader/presentation";
 
 const node = (stableKey: string, parentStableKey: string | null = null, position = 0): ReaderIndexNode => ({ stableKey, parentStableKey, position, type: "articulo", label: stableKey, title: null });
 
 describe("Legal reader structure", () => {
+  it("presents dates without internal labels or inferred legal validity", () => {
+    const technical = { versionLabel: "fixture-390732c9d2d5", isCurrent: true, validFrom: null, sourceVersionDate: "2026-02-05" };
+    expect(presentVersion(technical)).toEqual({ label: "Versión informada por la fuente", dateLabel: "Fecha declarada por la fuente: 5 de febrero de 2026" });
+    expect(presentVersion({ isCurrent: false, validFrom: "2003-05-29" })).toEqual({ label: "Versión histórica", dateLabel: "29 de mayo de 2003" });
+    expect(presentVersion({ isCurrent: true })).toEqual({ label: "Versión de consulta actual", dateLabel: "Fecha de versión no informada" });
+  });
   it("preserves hierarchy and all orphans and breaks cycles without losing nodes", () => {
     const tree = buildReaderTree([node("a", "b", 1), node("b", "a", 2), node("c", "absent", 3), node("d", "d", 4), node("e", "a", 5)]);
     const flatten = (items: typeof tree): string[] => items.flatMap((item) => [item.stableKey, ...flatten(item.children)]);
