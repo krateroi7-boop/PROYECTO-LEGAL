@@ -28,7 +28,9 @@ for (const query of ["Código Civil", "codigo civil"]) {
 }
 
 for (const reason of ["rate-limit", "source_backoff"]) {
-  test(`explains ${reason} without losing the official link or polling beyond the time limit`, async ({ page }) => {
+  // /consultar checks persistence on the server before mounting ResolutionPanel.
+  // Browser routes cannot replace that PostgreSQL precondition.
+  test(`explains ${reason} without losing the official link or polling beyond the time limit`, { tag: "@postgres" }, async ({ page }) => {
     await page.clock.install();
     await page.route("**/api/v1/descubrir?*", (route) => route.fulfill({ json: { data: { status: "empty", candidates: [], cache: "negative" } } }));
     let requests = 0;
@@ -88,17 +90,7 @@ test("routes human consultation back to the same search experience", async ({ pa
 });
 
 for (const [query, title, strategy] of [["Ley 19.880", "Bases de procedimientos administrativos", "number"], ["Ley de transparencia", "Acceso a la información pública", "alias"], ["procedimiento administrativo", "Procedimiento administrativo sintético", "subject"]]) {
-  test(`shows explicit candidates for ${query} without retrieving text`, async ({ page }) => {
-    if (process.env.DATABASE_URL && ["number", "alias"].includes(strategy)) {
-      let discoveryRequests = 0;
-      page.on("request", (request) => { if (request.url().includes("/api/v1/descubrir")) discoveryRequests++; });
-      await page.route("**/api/v1/resolver?*", (route) => route.fulfill({ status: 503, json: { data: { status: "unavailable", cache: "none", checkedAt: null } } }));
-      await page.goto(`/buscar?q=${encodeURIComponent(query)}`);
-      await expect(page.locator('a[href^="/normas/ley-"]').first()).toBeVisible();
-      await expect(page.getByRole("link", { name: "Consultar esta norma", exact: true })).toHaveCount(0);
-      expect(discoveryRequests).toBe(0);
-      return;
-    }
+  test(`shows explicit candidates for ${query} without retrieving text`, { tag: strategy === "subject" ? [] : "@fixture" }, async ({ page }) => {
     let xmlRequests = 0;
     page.on("request", (request) => { if (request.url().includes("/api/v1/resolver")) xmlRequests++; });
     await page.route("**/api/v1/descubrir?*", (route) => route.fulfill({ json: { data: { status: "available", cache: "fetched", candidates: [candidate("210676", title, strategy), candidate("276363", "Otra coincidencia")], eventId: randomUUID() } } }));
@@ -107,6 +99,18 @@ for (const [query, title, strategy] of [["Ley 19.880", "Bases de procedimientos 
     await expect(page.getByRole("link", { name: "Consultar esta norma", exact: true })).toHaveCount(2);
     await expect(page.getByRole("link", { name: "Consultar esta norma", exact: true }).first()).toHaveAttribute("href", /referencia=idNorma%3A210676/);
     expect(xmlRequests).toBe(0);
+  });
+}
+
+for (const query of ["Ley 19.880", "Ley de transparencia"]) {
+  test(`uses the published exact identity for ${query} without discovery`, { tag: "@postgres" }, async ({ page }) => {
+    let discoveryRequests = 0;
+    page.on("request", (request) => { if (request.url().includes("/api/v1/descubrir")) discoveryRequests++; });
+    await page.route("**/api/v1/resolver?*", (route) => route.fulfill({ status: 503, json: { data: { status: "unavailable", cache: "none", checkedAt: null } } }));
+    await page.goto(`/buscar?q=${encodeURIComponent(query)}`);
+    await expect(page.locator('a[href^="/normas/ley-"]').first()).toBeVisible();
+    await expect(page.getByRole("link", { name: "Consultar esta norma", exact: true })).toHaveCount(0);
+    expect(discoveryRequests).toBe(0);
   });
 }
 
@@ -124,8 +128,7 @@ test("protects review request history for anonymous visitors", async ({ page }) 
   await expect(page).toHaveURL(/\/api\/auth\/signin\?callbackUrl=%2Fcuenta%2Frevisiones/);
 });
 
-test("an authenticated reader requests review without publication and sees its editorial state", async ({ page, context }) => {
-  test.skip(!process.env.DATABASE_URL, "Requires isolated PostgreSQL and a real Auth.js database session.");
+test("an authenticated reader requests review without publication and sees its editorial state", { tag: "@postgres" }, async ({ page, context }) => {
   const db = getDb(), userId = randomUUID(), token = randomUUID(), slug = `test-review-e2e-${randomUUID()}`;
   const [norm] = await db.insert(norms).values({ slug, type: "Ley", number: "999999999", title: "Norma sintética para solicitar revisión", shortTitle: "Prueba de revisión", description: "Prueba", topics: [], status: "desconocida", publishedAt: new Date("2020-01-01"), updatedAt: new Date() }).returning();
   const [batch] = await db.insert(importBatches).values({ checksum: randomUUID(), status: "pending_review", normId: norm.id }).returning();

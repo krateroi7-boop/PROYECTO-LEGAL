@@ -40,7 +40,8 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: npx playwright install --with-deps chromium
-      - run: npm run test:e2e -- --workers=2
+      - name: Browser tests — fixture instance without PostgreSQL
+        run: npm run test:e2e -- --workers=2
         env:
           DATABASE_URL: ""
           AUTH_TRUST_HOST: "true"
@@ -48,5 +49,6 @@ jobs:
       - run: npm run test:e2e -- --workers=2
         name: Browser tests with PostgreSQL and Auth.js session
         env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/legisdata
           AUTH_TRUST_HOST: "true"
           PLAYWRIGHT_USE_BUILD: "1"

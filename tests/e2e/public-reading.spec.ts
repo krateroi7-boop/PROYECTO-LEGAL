@@ -41,7 +41,8 @@ test("protects account pages for anonymous visitors", async ({ page }) => {
   await expect(page).toHaveURL(/\/api\/auth\/signin\?callbackUrl=%2Fcuenta/);
 });
 
-test("opens an already published search result directly in the Legisdata reader", async ({ page }) => {
+// Number/alias identity lookup is backed by PostgreSQL, not the text-only fixture search.
+test("opens an already published search result directly in the Legisdata reader", { tag: "@postgres" }, async ({ page }) => {
   await page.goto("/buscar?q=Ley+19.880");
   await page.getByRole("link").filter({ hasText: "19.880" }).first().click();
   await expect(page).toHaveURL(/\/normas\/ley-19880$/);
@@ -56,10 +57,20 @@ test("rejects unsupported references without navigating to arbitrary sources", a
   await expect(page).toHaveURL("/");
 });
 
-test("explains unavailable external resolution in the fixture instance", async ({ page }) => {
-  test.skip(Boolean(process.env.DATABASE_URL), "This state requires the fixture server without PostgreSQL.");
+test("opens a fixture text search result directly in the Legisdata reader", { tag: "@fixture" }, async ({ page }) => {
+  await page.goto("/buscar?q=19.880");
+  await page.getByRole("link").filter({ hasText: "19.880" }).first().click();
+  await expect(page).toHaveURL(/\/normas\/ley-19880$/);
+  await expect(page.getByRole("heading", { name: /Establece bases/ })).toBeVisible();
+});
+
+test("explains unavailable external resolution in the fixture instance", { tag: "@fixture" }, async ({ page }) => {
+  let resolverRequests = 0;
+  page.on("request", (request) => { if (request.url().includes("/api/v1/resolver")) resolverRequests++; });
   await page.goto("/consultar?referencia=Ley+19.880");
   await expect(page.getByRole("main").getByRole("alert")).toHaveText("La consulta de fuentes externas no está disponible en esta instancia.");
+  await expect(page.getByRole("heading", { name: "Consultando la referencia", exact: true })).toHaveCount(0);
+  expect(resolverRequests).toBe(0);
   await page.getByRole("link", { name: "Buscar otra norma en Legisdata" }).click();
   await expect(page).toHaveURL("/buscar");
 });

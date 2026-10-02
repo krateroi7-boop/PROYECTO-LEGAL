@@ -90,8 +90,7 @@ test("mobile uses a single focus-trapped panel and preserves the selected articl
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
-test("historical navigation retains missing anchors and highlights only real changes", async ({ page }) => {
-  test.skip(!process.env.DATABASE_URL, "Requires isolated PostgreSQL fixtures.");
+test("historical navigation retains missing anchors and highlights only real changes", { tag: "@postgres" }, async ({ page }) => {
   await page.goto(`/normas/${fixture.slug}#articulo-2`);
   await page.locator(".reader-document-tools").getByRole("button", { name: "Más", exact: true }).click();
   await page.getByRole("button", { name: "Cambios", exact: true }).click();
@@ -109,8 +108,7 @@ test("historical navigation retains missing anchors and highlights only real cha
   expect((await page.request.get(`/api/v1/normas/${fixture.slug}/versiones/${fixture.pending}`)).status()).toBe(404);
 });
 
-test("hierarchical index collapses navigation without hiding legal text", async ({ page }) => {
-  test.skip(!process.env.DATABASE_URL, "Requires isolated PostgreSQL fixtures.");
+test("hierarchical index collapses navigation without hiding legal text", { tag: "@postgres" }, async ({ page }) => {
   await page.goto(`/normas/${fixture.slug}`);
   const index = page.locator(".reader-index-desktop");
   await index.getByRole("button", { name: "Contraer Capítulo I" }).click();
@@ -121,8 +119,7 @@ test("hierarchical index collapses navigation without hiding legal text", async 
   await expect(index.getByRole("link", { name: "Artículo 2", exact: true })).toHaveAttribute("aria-current", "location");
 });
 
-test("authenticated reader retains article drafts and manages version-specific notes and favorites", async ({ page, context }) => {
-  test.skip(!process.env.DATABASE_URL, "Requires a real Auth.js database session.");
+test("authenticated reader retains article drafts and manages version-specific notes and favorites", { tag: "@postgres" }, async ({ page, context }) => {
   const db = getDb(), userId = randomUUID(), token = randomUUID();
   await db.insert(users).values({ id: userId, name: "Reader test" });
   await db.insert(sessions).values({ sessionToken: token, userId, expires: new Date(Date.now() + 3600000) });
@@ -179,10 +176,10 @@ test("authenticated reader retains article drafts and manages version-specific n
   } finally { await db.delete(users).where(eq(users.id, userId)); }
 });
 
-test("reader keeps published legal text accessible without JavaScript", async ({ browser }) => {
-  const context = await browser.newContext({ javaScriptEnabled: false });
+test("reader keeps published legal text accessible without JavaScript", async ({ browser, baseURL }) => {
+  const context = await browser.newContext({ javaScriptEnabled: false, baseURL });
   const page = await context.newPage();
-  await page.goto("http://127.0.0.1:3000/normas/ley-19880");
+  await page.goto("/normas/ley-19880");
   await expect(page.locator("#articulo-1 .reader-legal-text").first()).toBeVisible();
   await expect(page.locator("#fuente")).toBeAttached();
   await context.close();
@@ -230,8 +227,7 @@ async function articleAction(page: Page, key: string, name: string) {
   await page.getByRole("dialog").getByRole("button", { name, exact: true }).click();
 }
 
-test("document-first layout hides secondary tools and supports keyboard drawers", async ({ page }) => {
-  test.skip(!process.env.DATABASE_URL, "Requires isolated PostgreSQL fixtures.");
+test("document-first layout hides secondary tools and supports keyboard drawers", { tag: "@postgres" }, async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(`/normas/${fixture.slug}`);
   await expect(page.locator("dialog")).not.toBeVisible();
