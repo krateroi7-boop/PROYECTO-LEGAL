@@ -23,12 +23,19 @@ export function InDocumentSearch({ root, close }: { root: RefObject<HTMLDivEleme
         const next: Hit[] = [];
         let slice = performance.now();
         for (const block of found) {
-          // Legal text leaves are server-rendered plain text; controls are outside these blocks.
-          const node = block.value.firstChild;
-          if (!node || node.nodeType !== Node.TEXT_NODE) continue;
+          // DOM offsets follow the complete text stream, including inline emphasis and links.
+          const text = block.value.textContent ?? "";
+          const walker = document.createTreeWalker(block.value, NodeFilter.SHOW_TEXT);
+          let node = walker.nextNode() as Text | null;
+          let offset = 0;
           for (const match of block.matches) {
-            const range = document.createRange(); range.setStart(node, match.start); range.setEnd(node, match.end);
-            next.push({ element: block.value, range, ...match, text: block.value.textContent ?? "" });
+            while (node && offset + node.length <= match.start) { offset += node.length; node = walker.nextNode() as Text | null; }
+            if (!node) break;
+            const startNode = node, startOffset = match.start - offset;
+            while (node && offset + node.length < match.end) { offset += node.length; node = walker.nextNode() as Text | null; }
+            if (!node) break;
+            const range = document.createRange(); range.setStart(startNode, startOffset); range.setEnd(node, match.end - offset);
+            next.push({ element: block.value, range, ...match, text });
             if (performance.now() - slice > 8) { await yieldReaderWork(); slice = performance.now(); if (controller.signal.aborted) return; }
           }
         }

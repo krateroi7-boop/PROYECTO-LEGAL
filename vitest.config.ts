@@ -9,6 +9,7 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    env: { LEGISDATA_DATA_MODE: "test" },
     include: ["tests/**/*.test.ts"],
     testTimeout: 20_000,
     hookTimeout: 20_000,

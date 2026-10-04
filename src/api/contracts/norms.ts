@@ -1,3 +1,4 @@
+import { contentBlockSchema } from "@/domain/legislation/content";
 import { z } from "zod";
 import { publicIdSchema, publicSlugSchema, stableKeySchema } from "./ids";
 import { provenanceSchema } from "./provenance";
@@ -12,6 +13,8 @@ export const articleDtoSchema = z.object({
   label: z.string().min(1),
   title: z.string().nullable(),
   text: z.string(),
+  contentBlocks: z.array(contentBlockSchema).nullable().optional(),
+  sourceMetadata: z.record(z.string(), z.union([z.string(), z.boolean(), z.null()])).nullable().optional(),
   position: z.number().int().nonnegative(),
   parentStableKey: stableKeySchema.nullable(),
 });

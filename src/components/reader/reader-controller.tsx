@@ -80,7 +80,7 @@ export function ReaderController({ slug, title, version, versions, nodes, initia
         let text = href;
         if (action === "copy") {
           const article = document.getElementById(key);
-          const content = Array.from(article?.querySelectorAll("[data-reader-text]") ?? []).map((part) => part.textContent).join("\n\n");
+          const content = Array.from(article?.querySelectorAll<HTMLElement>("[data-reader-text]") ?? []).map((part) => part.innerText).join("\n\n");
           text = `${content}\n\n${title}\n${version?.label ?? "Versión de consulta"}${version ? ` · ${version.dateLabel}` : ""}\n${href}`;
         }
         await navigator.clipboard.writeText(text);

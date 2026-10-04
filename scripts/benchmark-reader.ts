@@ -6,16 +6,18 @@ import ts from "typescript";
 import { eq } from "drizzle-orm";
 import { chromium, expect } from "@playwright/test";
 import { getDb, closeDb } from "../src/db/client";
-import { norms, normVersions, normNodes } from "../src/db/schema";
+import { norms, normVersions, normNodes, sourceDocuments } from "../src/db/schema";
 
 async function main() {
   const database = new URL(process.env.DATABASE_URL ?? "postgres://invalid");
   if (process.env.READER_BENCHMARK !== "1" || !["127.0.0.1", "localhost"].includes(database.hostname)) throw new Error("Requires READER_BENCHMARK=1 and a local disposable PostgreSQL database.");
+  if (process.env.LEGISDATA_DATA_MODE !== "test") throw new Error("Requires explicit test data mode.");
   const db = getDb(), slug = `reader-benchmark-${randomUUID()}`;
   const [norm] = await db.insert(norms).values({ slug, type: "Ley", number: "SYNTHETIC", title: "Documento sintético para medir el visor", shortTitle: "Prueba de rendimiento", status: "desconocida", description: "No es contenido jurídico", topics: [], publishedAt: new Date("2000-01-01"), updatedAt: new Date() }).returning();
-  const browser = await chromium.launch({ headless: true }).catch(async (error) => { await db.delete(norms).where(eq(norms.id, norm.id)); await closeDb(); throw error; });
+  const [source] = await db.insert(sourceDocuments).values({ sourceName: "Reader benchmark fixture", parser: "local-fixture-v1", checksum: randomUUID(), capturedAt: new Date() }).returning();
+  const browser = await chromium.launch({ headless: true }).catch(async (error) => { await db.delete(norms).where(eq(norms.id, norm.id)); await db.delete(sourceDocuments).where(eq(sourceDocuments.id, source.id)); await closeDb(); throw error; });
   try {
-    const [version] = await db.insert(normVersions).values({ normId: norm.id, versionLabel: "Versión sintética", publicationStatus: "published", isCurrent: true }).returning();
+    const [version] = await db.insert(normVersions).values({ normId: norm.id, versionLabel: "Versión sintética", publicationStatus: "published", sourceDocumentId: source.id, isCurrent: true }).returning();
     const chapter = randomUUID(), articles = Array.from({ length: 3000 }, () => randomUUID());
     const base = "Texto sintético sin efecto jurídico para medir la lectura. ".repeat(5).slice(0, 200);
     const rows: (typeof normNodes.$inferInsert)[] = [{ id: chapter, versionId: version.id, stableKey: "titulo-1", type: "titulo", label: "Título sintético", text: base, position: 0 }];
@@ -68,6 +70,6 @@ async function main() {
     const duration = (result as { searchMs?: number }).searchMs ?? Infinity;
     if (engine.maxSliceMs > 50) throw new Error(`Search processing slice exceeded 50 ms: ${Math.round(engine.maxSliceMs)} ms`);
     if (duration - 180 >= 1000) throw new Error(`Search exceeded the 1000 ms budget after debounce: ${Math.round(duration - 180)} ms`);
-  } finally { await browser.close(); await db.delete(norms).where(eq(norms.id, norm.id)); await closeDb(); }
+  } finally { await browser.close(); await db.delete(norms).where(eq(norms.id, norm.id)); await db.delete(sourceDocuments).where(eq(sourceDocuments.id, source.id)); await closeDb(); }
 }
 main().catch((error) => { console.error(error); process.exitCode = 1; });

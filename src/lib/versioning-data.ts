@@ -1,3 +1,4 @@
+import { fixtureDataEnabled } from "@/lib/data-mode";
 import { getLaw } from "@/lib/legislation";
 import type { LawVersion } from "@/domain/versioning/types";
 import { getPersistedLawVersion, listPersistedLawVersions } from "@/db/repositories/laws";
@@ -32,12 +33,12 @@ const versions: Record<string, LawVersion[]> = {
 };
 
 export async function getVersions(slug: string): Promise<LawVersion[]> {
-  if (process.env.DATABASE_URL) return listPersistedLawVersions(slug);
+  if (!fixtureDataEnabled()) return listPersistedLawVersions(slug);
   return versions[slug] ?? [];
 }
 
 export async function getVersion(slug: string, versionId: string): Promise<LawVersion | undefined> {
-  if (process.env.DATABASE_URL) return getPersistedLawVersion(slug, versionId);
+  if (!fixtureDataEnabled()) return getPersistedLawVersion(slug, versionId);
   return (await getVersions(slug)).find((version) => version.id === versionId);
 }
 

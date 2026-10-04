@@ -1,10 +1,13 @@
+import { parseContent, contentText, type ContentBlock } from "@/domain/legislation/content";
 import { createHash } from "node:crypto";
 import { XMLParser } from "fast-xml-parser";
 import { BcnXmlError, validateBcnXmlPayload } from "./xml-client";
 
-export const BCN_XML_PARSER_VERSION = "bcn-leychile-xml-v2";
+export const BCN_XML_PARSER_VERSION = "bcn-leychile-xml-v3";
 
 export type BcnXmlNode = {
+  contentBlocks?: ContentBlock[];
+  sourceMetadata?: Record<string, string | boolean | null>;
   stableKey: string;
   type: "titulo" | "capitulo" | "parrafo" | "articulo" | "inciso" | "disposicion_transitoria" | "encabezado" | "promulgacion" | "anexo" | "agrupador";
   sourceType: string;
@@ -50,6 +53,8 @@ export type BcnXmlDocument = {
   };
   nodes: BcnXmlNode[];
   attachments: BcnXmlAttachment[];
+  coverage: { inputParts: number; representedParts: number; inputTexts: number; representedTexts: number; unsupported: string[] };
+  sourceMetadata: Record<string, unknown>;
   warnings: string[];
 };
 
@@ -154,6 +159,15 @@ export function parseBcnXml(raw: string, capture: { url: string; capturedAt: str
   if (!/^[1-9]\d{0,11}$/.test(sourceIdentifier ?? "")) throw new BcnXmlError("invalid-response", "La norma XML no contiene un identificador BCN válido.");
   assertKnownChildren(norm, ["Identificador", "Metadatos", "Encabezado", "EstructurasFuncionales", "Promulgacion", "Anexos", "ArchivosBinarios"]);
   const warnings = new Set<string>();
+  const unsupported = new Set<string>();
+  if (norm.attributes.SchemaVersion && norm.attributes.SchemaVersion !== "1.0") unsupported.add("unsupported-source-schema");
+  let inputParts = 0, inputTexts = 0, representedTexts = 0;
+  function inventory(element: Element) {
+    if (["Encabezado", "Promulgacion", "EstructuraFuncional", "Anexo"].includes(element.name)) inputParts++;
+    if (element.name === "Texto") inputTexts++;
+    for (const nested of elements(element)) inventory(nested);
+  }
+  inventory(norm);
   const identification = child(norm, "Identificador");
   const pairs = child(identification, "TiposNumeros");
   const identifiers = pairs ? elements(pairs, "TipoNumero").map((pair) => ({ type: text(child(pair, "Tipo")), number: text(child(pair, "Numero")) })) : [];
@@ -200,7 +214,13 @@ export function parseBcnXml(raw: string, capture: { url: string; capturedAt: str
     let label = partName || partTitle || defaultLabel;
     if (["articulo", "disposicion_transitoria"].includes(type) && partName && !/^art[íi]?culo\b|^art\./i.test(partName)) label = `Artículo ${partName}`;
     if (transitory && !/transitori/i.test(label)) label += " transitorio";
-    nodes.push({ stableKey, type, sourceType, label, title: partTitle, text: text(child(part, "Texto")), position: nodes.length,
+    const body = child(part, "Texto");
+    if (body) representedTexts++;
+    const contentBlocks = body ? parseContent(body.content, unsupported) : [];
+    const sourceMetadata = { ...part.attributes, sourceType, sourcePartId, transitory };
+    const structures = elements(part).findIndex((e) => e.name === "EstructurasFuncionales");
+    if (structures >= 0 && elements(part).slice(structures + 1).some((e) => e.name === "Texto")) unsupported.add("text-after-child-structures");
+    nodes.push({ contentBlocks, sourceMetadata, stableKey, type, sourceType, label, title: partTitle, text: contentText(contentBlocks).trim(), position: nodes.length,
       parentStableKey, sourcePartId, versionDate: part.attributes.fechaVersion ? date(part.attributes.fechaVersion, "part-version-date", warnings) : null,
       sourceStatus: part.attributes.derogado ?? null, transitory });
     const children = child(part, "EstructurasFuncionales");
@@ -232,5 +252,7 @@ export function parseBcnXml(raw: string, capture: { url: string; capturedAt: str
       versionDate: date(norm.attributes.fechaVersion, "version-date", warnings),
       status: sourceStatus?.trim().toLowerCase() === "derogado" ? "derogada" : "unknown", sourceStatus, organisms },
     nodes, attachments, warnings: [...warnings],
+    coverage: { inputParts, representedParts: nodes.length, inputTexts, representedTexts, unsupported: [...unsupported] },
+    sourceMetadata: { attributes: norm.attributes, metadata: metadata ?? null, identification: identification ?? null },
   };
 }

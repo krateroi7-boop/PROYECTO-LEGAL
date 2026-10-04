@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getLaw, searchLaws } from "@/lib/legislation-data";
+import { getLawSummary, searchLaws } from "@/lib/legislation-data";
 import { findLocalExact, humanReference } from "@/search/hybrid";
 import { DiscoveryResults } from "@/components/legal/discovery-results";
 import { ResolutionPanel } from "@/components/legal/resolution-panel";
@@ -16,7 +16,7 @@ export default async function SearchPage({
   const reference = humanReference(q);
   const localExact = reference ? await findLocalExact(reference) : undefined;
   if (localExact?.resolution.slug && !results.some((law) => law.slug === localExact.resolution.slug)) {
-    const law = await getLaw(localExact.resolution.slug);
+    const law = await getLawSummary(localExact.resolution.slug);
     if (law) results.unshift(law);
   }
 
@@ -38,7 +38,7 @@ export default async function SearchPage({
         <div className="mt-4 divide-y divide-[#e2e6eb] rounded-2xl border border-[#e2e6eb] bg-white">
           {results.length ? results.map((law) => <Link href={`/normas/${law.slug}`} key={law.slug} className="block p-6 transition hover:bg-[#f8fafb]"><div className="flex flex-wrap items-center gap-3 text-xs font-bold uppercase tracking-[0.14em] text-[#d37d42]"><span>{law.type} {law.number}</span><span className="rounded-full bg-[#e8f4ed] px-2.5 py-1 tracking-normal text-[#398264]">{law.status}</span></div><h2 className="mt-3 text-xl font-bold text-[#173f6b]">{law.title}</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-[#697789]">{law.description}</p><div className="mt-4 flex flex-wrap gap-2">{law.topics.map((topic) => <span key={topic} className="rounded-full bg-[#eef4f8] px-2.5 py-1 text-xs font-semibold text-[#526174]">{topic}</span>)}</div></Link>) : <div className="p-10 text-center text-sm text-[#697789]">No hay publicaciones locales que coincidan con esta búsqueda.</div>}
         </div>
-        {localExact ? localExact.revalidationReference ? <ResolutionPanel compact reference={localExact.revalidationReference} initial={localExact.resolution} refresh={!localExact.fresh} /> : null : query ? <DiscoveryResults key={q} query={q} localSlugs={results.map((law) => law.slug)} /> : null}
+        {localExact ? localExact.revalidationReference ? <ResolutionPanel compact reference={localExact.revalidationReference} initial={localExact.resolution} /> : null : query ? <DiscoveryResults key={q} query={q} localSlugs={results.map((law) => law.slug)} /> : null}
       </div>
     </main>
   );

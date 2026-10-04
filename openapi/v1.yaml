@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: Legisdata API
   version: 1.0.0
-  description: Lectura publicada, descubrimiento selectivo de metadatos y resolución exacta. Sólo resolver conserva capturas y crea propuestas editoriales internas.
+  description: Lectura publicada, descubrimiento selectivo de metadatos y resolución exacta. GET consulta estado local; POST autenticado incorpora documentos bajo política de fuente y validación.
 servers:
   - url: https://example.com
 tags:
@@ -57,21 +57,17 @@ paths:
   /api/v1/resolver:
     get:
       tags: [Fuentes]
-      summary: Resuelve una referencia exacta BCN con caché y revisión editorial
-      description: Puede consultar la fuente y persistir una propuesta. Nunca devuelve el texto pendiente de revisión. Las respuestas no admiten caché HTTP.
+      summary: Consulta el estado persistido de una referencia BCN
+      description: Nunca inicia HTTP externo, adquisición, publicación ni recuperación de reservas. not_requested no significa inexistencia. No expone texto pendiente.
       parameters:
         - in: query
           name: referencia
           required: true
           schema: { type: string, minLength: 1, maxLength: 500 }
           example: Ley 19.880
-        - in: query
-          name: discovery
-          description: Correlación opaca devuelta por descubrir; sólo cuenta una selección válida por búsqueda
-          schema: { type: string, format: uuid }
       responses:
         '200':
-          description: Versión publicada disponible; puede estar pendiente una actualización
+          description: Versión publicada o referencia todavía no incorporada (not_requested)
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ResolutionEnvelope' }
@@ -85,6 +81,10 @@ paths:
               schema: { $ref: '#/components/schemas/ResolutionEnvelope' }
         '400':
           description: Referencia inválida
+        '403':
+          description: Política de fuente bloqueada
+        '502':
+          description: Representación persistida incompatible
         '404':
           description: Ausencia confirmada por la fuente, temporalmente cacheada
           content:
@@ -97,6 +97,48 @@ paths:
           headers:
             Retry-After:
               schema: { type: string }
+    post:
+      tags: [Fuentes]
+      summary: Incorpora una referencia mediante una cuenta autenticada
+      description: Requiere sesión Auth.js, JSON y Origin igual al origen de la solicitud. Diez adquisiciones diarias y dos por minuto por cuenta por defecto. Hits y sondeos no consumen cuota. Publica sólo con política y validación; en otro caso mantiene revisión o bloqueo. Nunca acepta actor o permisos del cliente.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [referencia]
+              properties:
+                referencia: { type: string, minLength: 1, maxLength: 500 }
+                discovery: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Publicación local disponible
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResolutionEnvelope' }
+        '202':
+          description: Resolución en curso o propuesta pendiente; sondeo sólo mediante GET
+          headers:
+            Retry-After: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ResolutionEnvelope' }
+        '400': { description: Entrada inválida }
+        '401': { description: Se requiere sesión }
+        '403': { description: Origen, entitlement o política de fuente bloqueados }
+        '404': { description: Ausencia confirmada y fresca }
+        '413': { description: Cuerpo mayor a 4096 bytes }
+        '429':
+          description: Cuota operativa de la cuenta agotada
+          headers:
+            Retry-After: { schema: { type: string } }
+        '502': { description: Representación inutilizable o incompleta }
+        '503':
+          description: Fuente o persistencia temporalmente no disponible
+          headers:
+            Retry-After: { schema: { type: string } }
   /api/v1/normas:
     get:
       tags: [Normas]
@@ -330,7 +372,7 @@ components:
           type: object
           required: [status, cache, source, reference, checkedAt]
           properties:
-            status: { type: string, enum: [published, pending_review, resolving, not_found, unavailable] }
+            status: { type: string, enum: [published, pending_review, resolving, not_requested, blocked, not_found, unavailable] }
             cache: { type: string, enum: [hit, fetched, revalidated, stale, negative, none] }
             source: { type: string }
             reference:

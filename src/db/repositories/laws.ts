@@ -1,3 +1,7 @@
+import { and, eq, inArray, sql } from "drizzle-orm";
+import { getDb } from "@/db/client";
+import { norms, normVersions, normNodes } from "@/db/schema";
+import { publicVersionCondition } from "@/db/public-visibility";
 import { getApiNormDetail, listApiNorms, listApiVersions } from "@/db/repositories/api";
 import { publicIdSchema, type NormDetailDto } from "@/api/contracts";
 import type { Law } from "@/lib/legislation";
@@ -68,4 +72,15 @@ export async function listPersistedLawVersions(slug: string): Promise<LawVersion
   // The web comparator presents versions chronologically; the API lists newest first.
   const result = await Promise.all([...versions].reverse().map((version) => getPersistedLawVersion(slug, version.id)));
   return result.filter((version): version is LawVersion => version !== undefined);
+}
+
+export type LawSummary = Omit<Law, "articles"> & { articleCount: number };
+export async function listPersistedLawSummaries(slugs?: string[]): Promise<LawSummary[]> {
+  if (slugs?.length === 0) return [];
+  const rows = await getDb().select({ norm: norms,
+    articleCount: sql<number>`(select count(*)::int from ${normNodes} where ${normNodes.versionId} = ${normVersions.id} and ${normNodes.type} in ('articulo', 'disposicion_transitoria'))`,
+  }).from(norms).innerJoin(normVersions, eq(normVersions.normId, norms.id))
+    .where(and(eq(normVersions.isCurrent, true), publicVersionCondition(), slugs ? inArray(norms.slug, slugs) : undefined)).orderBy(norms.number).limit(slugs?.length ?? 100);
+  return rows.map(({ norm, articleCount }) => ({ slug: norm.slug, type: norm.type, number: norm.number, title: norm.title, shortTitle: norm.shortTitle, description: norm.description, topics: norm.topics,
+    status: ({ vigente: "Vigente", modificada: "Modificada", derogada: "Derogada", desconocida: "Desconocida" } as const)[norm.status], published: formatDate(norm.publishedAt.toISOString()), updated: formatDate(norm.updatedAt.toISOString()), articleCount }));
 }

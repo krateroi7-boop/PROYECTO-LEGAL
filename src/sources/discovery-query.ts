@@ -1,3 +1,4 @@
+import { corpusReference } from "./corpus";
 import { parseBcnReference } from "@/ingestion/sources/bcn-leychile/reference";
 import type { DiscoveryQuery } from "./discovery-types";
 
@@ -15,8 +16,9 @@ export function parseDiscoveryQuery(input: string): DiscoveryQuery {
   const number = text.match(/^(?:ley\s*(?:(?:n[.°ºo]*|número)\s*)?)?(\d{1,3}(?:\.\d{3})+|\d+)$/i)?.[1]?.replaceAll(".", "") ?? alias;
   if (number && /^[1-9]\d{0,11}$/.test(number)) return { normalized: alias ? normalized : `ley ${number}`, number, reference: { kind: "idLey", value: number }, operation: "metadata", strategy: alias ? "alias" : "number", terms: [], lawOnly: true };
   try {
-    const reference = parseBcnReference(text);
-    return { normalized: `${reference.kind}:${reference.value}`, reference, operation: "metadata", strategy: "identifier", terms: [], lawOnly: false };
+    const hint = corpusReference(text);
+    const reference = hint ?? parseBcnReference(text);
+    return { normalized: hint ? `corpus-v1:${normalized}` : `${reference.kind}:${reference.value}`, reference, operation: "metadata", strategy: hint ? "alias" : "identifier", terms: [], lawOnly: false };
   } catch { /* Textual discovery follows; URLs and malformed explicit identifiers are not free-text searches. */ }
   if (/https?:\/\/|^id(?:norma|ley)\s*[:=]/i.test(text)) throw new Error("INVALID_DISCOVERY_QUERY");
   const terms = normalized.match(/[\p{L}\p{N}]+/gu)?.filter((word) => !["ley", "de", "la", "el", "los", "las", "y", "en", "del", "sobre"].includes(word)).slice(0, 6) ?? [];

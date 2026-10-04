@@ -2,8 +2,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { bcnConnector } from "@/sources/bcn";
 import { findLocalExact } from "@/search/hybrid";
-import { readSourceResolution } from "@/sources/resolver";
-import { recordDiscoverySelection } from "@/sources/metrics";
+import { auth } from "@/auth";
+import { readIngestionState } from "@/sources/ingestion-service";
 import { ResolutionPanel } from "@/components/legal/resolution-panel";
 
 export default async function ConsultPage({ searchParams }: { searchParams: Promise<{ q?: string; referencia?: string; discovery?: string; busqueda?: string }> }) {
@@ -21,12 +21,12 @@ export default async function ConsultPage({ searchParams }: { searchParams: Prom
     if (!process.env.DATABASE_URL) error = "La consulta de fuentes externas no está disponible en esta instancia.";
     else {
       try {
-        known = await findLocalExact(reference) ?? await readSourceResolution(bcnConnector, reference);
-        if (params.discovery && reference.kind === "idNorma") await recordDiscoverySelection(params.discovery, reference.value);
+        known = await findLocalExact(reference) ?? { resolution: await readIngestionState(bcnConnector, reference), fresh: false };
       } catch { error = "No fue posible consultar la persistencia. Inténtelo nuevamente más tarde."; }
     }
   }
   if (!error && known?.resolution.status === "published" && known.resolution.slug) redirect(`/normas/${known.resolution.slug}`);
+  const session = await auth();
   return <main className="min-h-screen bg-[#f6f7f9] text-[#192231]">
     <header className="border-b border-[#dfe4eb] bg-white"><div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5 lg:px-10"><Link href="/" className="text-lg font-bold text-[#173f6b]">Legisdata</Link><Link href={back} className="text-sm font-semibold text-[#526174]">Volver a resultados</Link></div></header>
     <div className="mx-auto max-w-3xl px-6 py-10">
@@ -34,7 +34,7 @@ export default async function ConsultPage({ searchParams }: { searchParams: Prom
       <h1 className="mt-3 text-3xl font-bold text-[#173f6b]">Consultar en Legisdata</h1>
       <p className="mt-3 text-sm text-[#697789]">Fuente: BCN / LeyChile. La disponibilidad de lectura depende de la revisión editorial.</p>
       {error ? <p role="alert" className="mt-6 rounded-xl bg-white p-6 text-[#a94c4c]">{error}</p> : null}
-      {!error && reference ? <ResolutionPanel key={`${reference.kind}:${reference.value}`} reference={reference} initial={known?.resolution} refresh={known ? !known.fresh : false} discoveryId={params.discovery} /> : null}
+      {!error && reference ? <ResolutionPanel key={`${reference.kind}:${reference.value}`} reference={reference} initial={known?.resolution} authenticated={Boolean(session?.user?.id)} discoveryId={params.discovery} /> : null}
       <Link href={back} className="mt-8 inline-block font-semibold text-[#173f6b] underline">Buscar otra norma en Legisdata</Link>
     </div>
   </main>;

@@ -1,3 +1,4 @@
+import { ContentBlocks } from "./content-blocks";
 import { cookies } from "next/headers";
 import Link from "next/link";
 import { readerDate } from "@/lib/reader/data";
@@ -10,6 +11,7 @@ export async function LegalDocument({ document: doc }: { document: ReaderDocumen
   const jar = await cookies();
   const theme = jar.get("reader-theme")?.value ?? "system", size = Number(jar.get("reader-size")?.value ?? 18);
   const index: ReaderIndexNode[] = doc.nodes.map(({ stableKey, parentStableKey, type, label, title, position }) => ({ stableKey, parentStableKey, type, label, title, position }));
+  const blocks = new Map(doc.nodes.map((node) => [node.stableKey, node.contentBlocks]));
   const texts = new Map(doc.nodes.map((node) => [node.stableKey, node.text]));
   function renderNode(node: IndexBranch) {
     const Heading = `h${Math.min(node.depth + 2, 6)}` as "h2" | "h3" | "h4" | "h5" | "h6";
@@ -17,7 +19,7 @@ export async function LegalDocument({ document: doc }: { document: ReaderDocumen
       <div className="reader-node-heading"><Heading><a href={readerUrl(doc.slug, doc.version?.id, node.stableKey)} data-reader-text>{readerHeading(node)}</a></Heading><span data-change-badge className="reader-change-badge" />
         {["articulo", "disposicion_transitoria"].includes(node.type) && <button type="button" className="reader-article-menu" data-reader-action="menu" data-key={node.stableKey} aria-label={`Acciones de ${node.label}`} aria-haspopup="dialog">⋯</button>}
       </div>
-      {(texts.get(node.stableKey) ?? "").split(/\n\s*\n/).filter(Boolean).map((text, position) => <p key={position} data-reader-text className="reader-legal-text">{text}</p>)}
+      {blocks.get(node.stableKey)?.length ? <div data-reader-text className="reader-legal-text reader-content-blocks"><ContentBlocks blocks={blocks.get(node.stableKey)!} /></div> : (texts.get(node.stableKey) ?? "").split(/\n\s*\n/).filter(Boolean).map((text, position) => <p key={position} data-reader-text className="reader-legal-text">{text}</p>)}
       {node.children.map(renderNode)}
     </section>;
   }

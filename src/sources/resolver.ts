@@ -1,8 +1,13 @@
-import { createHash } from "node:crypto";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { sourceSlug } from "./corpus";
+import { XMLValidator } from "fast-xml-parser";
+import { validateSourceDocument } from "./document-validation";
+import { publishPreparedBatch, AutomaticPublicationDeferred } from "@/ingestion/editorial/publication";
+import { automaticPublicationAllowed } from "@/ingestion/editorial/source-policy";
+import { createHash, randomUUID } from "node:crypto";
+import { and, desc, eq, gt, sql } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import { publicVersionCondition } from "@/db/public-visibility";
-import { documentIdentifiers, editorialDecisions, importBatches, normNodes, normVersions, norms, sourceCache, sourceDocuments, sourceObservations, sourcePolicies } from "@/db/schema";
+import { documentIdentifiers, editorialDecisions, importBatches, importValidations, normNodes, normVersions, norms, sourceCache, sourceDocuments, sourceObservations, sourcePolicies, sourceLeases } from "@/db/schema";
 import { FilesystemRawStorage } from "@/ingestion/storage/filesystem";
 import type { RawStorage } from "@/ingestion/storage/types";
 import { sourcePublicationAllowed } from "@/ingestion/editorial/source-policy";
@@ -13,7 +18,7 @@ import { observeCache } from "./metrics";
 type Transaction = Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0];
 type CacheEntry = typeof sourceCache.$inferSelect;
 export type Resolution = {
-  status: "published" | "pending_review" | "not_found" | "unavailable" | "resolving";
+  status: "published" | "pending_review" | "not_found" | "unavailable" | "resolving" | "not_requested" | "blocked";
   cache: "hit" | "fetched" | "revalidated" | "stale" | "negative" | "none";
   source: string;
   reference: SourceReference;
@@ -32,6 +37,8 @@ type ResolverOptions = {
   ttlMs?: number;
   negativeTtlMs?: number;
   minIntervalMs?: number;
+  beforeAcquire?: (tx: Transaction) => Promise<void>;
+  onAcquired?: (tx: Transaction, at: Date) => Promise<void>;
 };
 const pending = new Map<string, Promise<Resolution>>();
 const seconds = (ms: number) => Math.max(1, Math.ceil(ms / 1000));
@@ -45,6 +52,11 @@ export function createSourceResolver(options: ResolverOptions) {
   const negativeTtlMs = options.negativeTtlMs ?? 60_000;
   return async (reference: SourceReference): Promise<Resolution> => {
     if (!/^[1-9]\d{0,11}$/.test(reference.value) || !["idNorma", "idLey"].includes(reference.kind)) throw new Error("INVALID_SOURCE_REFERENCE");
+    // An alias is canonical only after a previous response proved its external identity.
+    const [alias] = await getDb().select({ id: sourceDocuments.sourceIdentifier }).from(sourceCache)
+      .innerJoin(sourceDocuments, eq(sourceDocuments.id, sourceCache.sourceDocumentId))
+      .where(and(eq(sourceCache.sourceKey, connector.key), eq(sourceCache.operation, "resolve"), eq(sourceCache.referenceKind, reference.kind), eq(sourceCache.referenceValue, reference.value))).orderBy(desc(sourceCache.checkedAt)).limit(1);
+    if (alias?.id && /^[1-9]\d{0,11}$/.test(alias.id)) reference = { kind: "idNorma", value: alias.id };
     const key = resolutionKey(connector, reference);
     const inFlightKey = `${process.env.DATABASE_URL}:${key}`;
     if (pending.has(inFlightKey)) return pending.get(inFlightKey)!;
@@ -66,6 +78,7 @@ export function createSourceResolver(options: ResolverOptions) {
           await observeCache(tx, connector.key, key, "resolve", "stale", at);
           return { result: await publicResolution(tx, cached, reference, "stale", seconds(cached.retryAfter.getTime() - at.getTime())) };
         }
+        await options.beforeAcquire?.(tx);
         const reservation = await acquireLease(tx, key, connector.key, at, options.minIntervalMs ?? 1_000);
         if (!("lease" in reservation)) {
           if (cached) await observeCache(tx, connector.key, key, "resolve", "stale", at);
@@ -80,6 +93,7 @@ export function createSourceResolver(options: ResolverOptions) {
           await observeCache(tx, connector.key, key, "resolve", cache, now());
           return { result: await publicResolution(tx, latest, reference, cache) };
         }
+        await options.onAcquired?.(tx, at);
         await observeCache(tx, connector.key, key, "resolve", "miss", at);
         return { cached, lease: reservation.lease };
       });
@@ -90,6 +104,7 @@ export function createSourceResolver(options: ResolverOptions) {
       let document: SourceDocument | undefined;
       let checksum: string | undefined;
       let objectKey: string | undefined;
+      let originalVerified = false;
       let failure: { kind: string; httpStatus?: number; retryAfterMs?: number } | undefined;
       let durationMs: number | undefined;
       // Network, parsing, and durable filesystem IO are deliberately outside every DB transaction.
@@ -100,13 +115,21 @@ export function createSourceResolver(options: ResolverOptions) {
           try {
             checksum = createHash("sha256").update(response.raw ?? "").digest("hex");
             if (!response.raw || (response.checksum && response.checksum !== checksum)) throw new Error("Invalid checksum");
+            if (XMLValidator.validate(response.raw) !== true) throw new Error("Malformed original XML");
+            // Checksum addresses content independently of a law-number/ID alias. Reuse older paths too.
+            const [preserved] = await getDb().select({ key: sourceDocuments.originalObjectKey, legacyKey: sourceDocuments.storageKey }).from(sourceDocuments).where(and(eq(sourceDocuments.sourceKey, connector.key), eq(sourceDocuments.checksum, checksum), eq(sourceDocuments.parserVersion, connector.parserVersion))).limit(1);
+            objectKey = preserved?.key ?? preserved?.legacyKey ?? `sources/${connector.key}/raw/${checksum}.xml`;
+            await storage.put(objectKey, response.raw);
+            const stored = await storage.get(objectKey);
+            if (stored.checksum !== checksum) throw new Error("Stored original checksum mismatch");
+            originalVerified = true;
             document = connector.normalize(response.raw, { url: response.url, capturedAt: response.capturedAt, checksum });
             validateDocument(document);
+            document.validation = validateSourceDocument(document, reference);
             if (reference.kind === "idNorma" && document.sourceIdentifier !== reference.value) throw new Error("Source identity mismatch");
             if (reference.kind === "idLey" && (document.number.replace(/\./g, "") !== reference.value || document.type.toLowerCase() !== "ley")) throw new Error("Source law identity mismatch");
           } catch { throw { kind: "invalid_document", httpStatus: 200 }; }
-          objectKey = `sources/${connector.key}/${document.sourceIdentifier}/${checksum}.xml`;
-          await storage.put(objectKey, response.raw!);
+
         } else if (!cached?.sourceDocumentId) throw { kind: "unexpected_304", httpStatus: 304 };
       } catch (error) {
         const typed = error as { kind?: string; httpStatus?: number; retryAfterMs?: number } | null;
@@ -120,6 +143,13 @@ export function createSourceResolver(options: ResolverOptions) {
             return { status: "resolving", cache: "none", source: connector.key, reference, checkedAt: null, retryAfterSeconds: 2, reason: "lease_expired" };
           }
           if (failure) {
+            if (failure.kind === "invalid_document" && originalVerified && objectKey && checksum && response?.raw) {
+              const identifier = reference.kind === "idNorma" ? reference.value : `unresolved-idLey:${reference.value}`;
+              let [source] = await tx.select().from(sourceDocuments).where(and(eq(sourceDocuments.sourceKey, connector.key), eq(sourceDocuments.sourceIdentifier, identifier), eq(sourceDocuments.checksum, checksum), eq(sourceDocuments.parserVersion, connector.parserVersion)));
+              if (!source) [source] = await tx.insert(sourceDocuments).values({ sourceKey: connector.key, sourceName: connector.name, sourceIdentifier: identifier, sourceUrl: response.url, checksum, parser: connector.parserVersion, parserVersion: connector.parserVersion, format: "application/xml", storageKey: objectKey, originalObjectKey: objectKey, capturedAt: new Date(response.capturedAt), capturedHttpStatus: 200 }).returning();
+              const [batch] = await tx.insert(importBatches).values({ checksum, status: "validation_failed", sourceDocumentId: source.id, parserVersion: connector.parserVersion, error: "Formato o identidad incompatible; original privado conservado." }).onConflictDoNothing().returning();
+              if (batch) await tx.insert(importValidations).values({ batchId: batch.id, rule: "invalid_document", severity: "error", message: "No fue posible normalizar íntegramente el original." });
+            }
             await tx.insert(sourceObservations).values({ sourceKey: connector.key, cacheKey: key, observedAt: now(), outcome: failure.kind, httpStatus: failure.httpStatus, durationMs, checksum });
             if (failure.kind === "not-found" && !cached?.sourceDocumentId) {
               const entry = await writeCache(tx, key, connector.key, reference, { sourceDocumentId: null, etag: null, lastModified: null, outcome: "not_found", checkedAt: now(), expiresAt: new Date(now().getTime() + negativeTtlMs), retryAfter: null, lastAccessedAt: now() });
@@ -145,7 +175,20 @@ export function createSourceResolver(options: ResolverOptions) {
           const [identity] = await tx.select().from(documentIdentifiers).where(and(eq(documentIdentifiers.sourceKey, connector.key), eq(documentIdentifiers.externalId, normalized.sourceIdentifier)));
           const change = source ? "unchanged" : identity ? "modified_representation" : "new_document";
           if (!source) [source] = await tx.insert(sourceDocuments).values({ sourceKey: connector.key, sourceName: connector.name, sourceIdentifier: normalized.sourceIdentifier, sourceUrl: response!.url, format: "application/xml", checksum: checksum!, parser: connector.parserVersion, parserVersion: connector.parserVersion, storageKey: objectKey!, originalObjectKey: objectKey!, capturedAt: new Date(response!.capturedAt), capturedHttpStatus: 200, normalizedContent: normalized, issuingOrganization: normalized.organisms.join("; ") }).returning();
-          await proposeDocument(tx, source.id, connector, normalized, checksum!);
+          const batch = await proposeDocument(tx, source.id, connector, normalized, checksum!);
+          const [policy] = await tx.select().from(sourcePolicies).where(eq(sourcePolicies.sourceKey, connector.key));
+          if (batch?.status === "pending_review" && normalized.validation?.complete && automaticPublicationAllowed(source, policy)) {
+            // A savepoint preserves the private capture if an editorial/policy conflict prevents publication.
+            try {
+              await tx.transaction((publicationTx) => publishPreparedBatch(publicationTx, batch.id, { kind: "system" }, { sourceId: source.id, checksum: checksum!, storageKey: objectKey! }));
+              await tx.insert(sourceObservations).values({ sourceKey: connector.key, cacheKey: key, sourceDocumentId: source.id, observedAt: now(), operation: "publish", eventKind: "metric", outcome: "auto_published" });
+            }
+            catch (error) {
+              const deferred = error instanceof AutomaticPublicationDeferred;
+              await tx.insert(sourceObservations).values({ sourceKey: connector.key, cacheKey: key, sourceDocumentId: source.id, observedAt: now(), operation: "publish", eventKind: "metric", outcome: deferred ? "review_required" : "publication_failed" });
+              if (!deferred) await tx.update(importBatches).set({ error: "Publicación automática interrumpida; no se modificó la versión pública." }).where(eq(importBatches.id, batch.id));
+            }
+          }
           const values = { sourceDocumentId: source.id, etag: response!.etag ?? null, lastModified: response!.lastModified ?? null, outcome: "captured", checkedAt: now(), expiresAt: new Date(now().getTime() + ttlMs), retryAfter: null, lastAccessedAt: now() };
           const entry = await writeCache(tx, key, connector.key, reference, values);
           // Proof from the normalized document permits aliases without an extra HTTP fetch.
@@ -170,7 +213,9 @@ export function resolutionKey(connector: Pick<LegalSourceConnector, "key" | "par
 export async function readSourceResolution(connector: LegalSourceConnector, reference: SourceReference) {
   return getDb().transaction(async (tx) => {
     const [entry] = await tx.select().from(sourceCache).where(eq(sourceCache.key, resolutionKey(connector, reference)));
-    if (!entry) return undefined;
+    const [lease] = await tx.select().from(sourceLeases).where(and(eq(sourceLeases.key, resolutionKey(connector, reference)), gt(sourceLeases.expiresAt, new Date())));
+    if (lease && !entry?.sourceDocumentId) return { fresh: false, resolution: { status: "resolving", source: connector.key, reference, cache: "none", checkedAt: null, retryAfterSeconds: 2 } as Resolution };
+    if (!entry || (!entry.sourceDocumentId && entry.expiresAt <= new Date())) return undefined;
     return { resolution: await publicResolution(tx, entry, reference, entry.expiresAt > new Date() ? entry.outcome === "not_found" ? "negative" : "hit" : "stale"), fresh: entry.expiresAt > new Date() };
   });
 }
@@ -195,24 +240,28 @@ async function publicResolution(tx: Transaction, cached: CacheEntry, reference: 
   const proposal = batch ? { id: batch.id, title: doc?.title, number: doc?.number, type: doc?.type, publicationDate: doc?.publishedAt ?? undefined, organisms: doc?.organisms, requestable: ["pending_review", "approved"].includes(batch.status) } : undefined;
   if (!sourcePublicationAllowed(source, policy)) return { ...base, status: "pending_review", sourceUrl, proposal };
   const [identity] = await tx.select().from(documentIdentifiers).where(and(eq(documentIdentifiers.sourceKey, cached.sourceKey), eq(documentIdentifiers.externalId, source.sourceIdentifier)));
-  if (!identity) return { ...base, status: "pending_review", sourceUrl, proposal };
+  if (!identity) return batch?.status === "validation_failed" ? { ...base, status: "unavailable", reason: "invalid_document", sourceUrl } : { ...base, status: "pending_review", sourceUrl, proposal };
   const [published] = await tx.select({ slug: norms.slug, id: normVersions.id, sourceDocumentId: normVersions.sourceDocumentId })
     .from(normVersions).innerJoin(norms, eq(norms.id, normVersions.normId))
     .where(and(eq(normVersions.normId, identity.normId), publicVersionCondition(), eq(normVersions.isCurrent, true)))
     .orderBy(desc(normVersions.publishedAt)).limit(1);
-  if (!published) return { ...base, status: "pending_review", sourceUrl, proposal };
+  if (!published) return batch?.status === "validation_failed" ? { ...base, status: "unavailable", reason: "invalid_document", sourceUrl } : { ...base, status: "pending_review", sourceUrl, proposal };
   return { ...base, status: "published", sourceUrl, slug: published.slug, versionId: published.id,
     ...(published.sourceDocumentId !== cached.sourceDocumentId ? { cache: "stale" as const, reason: "update_pending_review" } : {}) };
 }
 
 async function proposeDocument(tx: Transaction, sourceDocumentId: string, connector: LegalSourceConnector, document: SourceDocument, checksum: string) {
   const [existing] = await tx.select().from(importBatches).where(and(eq(importBatches.sourceDocumentId, sourceDocumentId), eq(importBatches.parserVersion, connector.parserVersion)));
-  if (existing) return;
+  if (existing) return existing;
+  if (!document.validation?.complete) {
+    const [failed] = await tx.insert(importBatches).values({ checksum, status: "validation_failed", sourceDocumentId, parserVersion: connector.parserVersion, itemCount: document.nodes.length, error: "La representación no supera las comprobaciones de integridad." }).returning();
+    if (document.validation?.issues.length) await tx.insert(importValidations).values(document.validation.issues.map((issue) => ({ batchId: failed.id, ...issue })));
+    return failed;
+  }
   await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`identity:${connector.key}:${document.sourceIdentifier}`}, 0))`);
   let [identity] = await tx.select().from(documentIdentifiers).where(and(eq(documentIdentifiers.sourceKey, connector.key), eq(documentIdentifiers.externalId, document.sourceIdentifier)));
   if (!identity) {
-    const prefix = connector.key === "bcn-leychile" ? "bcn" : connector.key;
-    const [norm] = await tx.insert(norms).values({ slug: `${prefix}-${document.sourceIdentifier}`, type: document.type, number: document.number, title: document.title,
+    const [norm] = await tx.insert(norms).values({ slug: sourceSlug(connector.key, document.sourceIdentifier, document.title), type: document.type, number: document.number, title: document.title,
       shortTitle: `${document.type} ${document.number}`, description: `Texto recuperado de ${connector.name}.`, status: document.status,
       topics: [], publishedAt: new Date(document.publishedAt!), updatedAt: new Date(document.versionDate ?? document.publishedAt!),
     }).returning();
@@ -223,17 +272,16 @@ async function proposeDocument(tx: Transaction, sourceDocumentId: string, connec
     validFrom: null, sourceVersionDate: document.versionDate ? new Date(document.versionDate) : null,
     isCurrent: false, kind: "proposed", publicationStatus: "pending_review", sourceDocumentId,
   }).returning();
-  const inserted = await tx.insert(normNodes).values(document.nodes.map((node) => ({ versionId: version.id, stableKey: node.stableKey, type: node.type, label: node.label, title: node.title, text: node.text, position: node.position }))).returning();
-  const ids = new Map(inserted.map((node) => [node.stableKey, node.id]));
-  for (const node of document.nodes) {
-    if (node.parentStableKey) await tx.update(normNodes).set({ parentId: ids.get(node.parentStableKey)! }).where(eq(normNodes.id, ids.get(node.stableKey)!));
-  }
+  const ids = new Map(document.nodes.map((node) => [node.stableKey, randomUUID()]));
+  for (let i = 0; i < document.nodes.length; i += 400) await tx.insert(normNodes).values(document.nodes.slice(i, i + 400).map((node) => ({ id: ids.get(node.stableKey)!, versionId: version.id, parentId: node.parentStableKey ? ids.get(node.parentStableKey)! : null, stableKey: node.stableKey, type: node.type, label: node.label, title: node.title, text: node.text, position: node.position, contentBlocks: node.contentBlocks, sourceMetadata: node.sourceMetadata })));
   const [batch] = await tx.insert(importBatches).values({ checksum, status: "pending_review", sourceDocumentId, normId: identity.normId,
     proposedVersionId: version.id, parserVersion: connector.parserVersion, itemCount: document.nodes.length,
   }).returning();
+  await tx.insert(importValidations).values(document.validation.issues.map((issue) => ({ batchId: batch.id, ...issue })));
   await tx.insert(editorialDecisions).values({ batchId: batch.id, normId: identity.normId, versionId: version.id,
     action: "submit_review", previousStatus: "captured", newStatus: "pending_review", reason: "Documento recuperado bajo demanda; requiere revisión editorial y política de uso verificada.", metadata: { warnings: document.warnings },
   });
+  return batch;
 }
 
 function validateDocument(document: SourceDocument) {

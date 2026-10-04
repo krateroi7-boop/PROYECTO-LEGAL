@@ -10,6 +10,9 @@ export const apiErrorSchema = z.object({
 export type ApiError = z.infer<typeof apiErrorSchema>;
 
 export function toApiError(error: unknown): ApiError {
+  if (error instanceof Error && ["RATE_LIMITED", "AUTHENTICATION_REQUIRED", "INGESTION_FORBIDDEN"].includes(error.message)) {
+    return { code: error.message, message: ({ RATE_LIMITED: "Demasiadas solicitudes. Inténtelo más tarde.", AUTHENTICATION_REQUIRED: "Inicie sesión para incorporar una norma.", INGESTION_FORBIDDEN: "Esta solicitud de incorporación no está autorizada." })[error.message]! };
+  }
   if (error instanceof z.ZodError) {
     return {
       code: "VALIDATION_ERROR",

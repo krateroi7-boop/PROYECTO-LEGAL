@@ -1,4 +1,8 @@
+import type { ContentBlock } from "@/domain/legislation/content";
+import type { DocumentValidation } from "./document-validation";
 export type SourceNode = {
+  contentBlocks?: ContentBlock[];
+  sourceMetadata?: Record<string, string | boolean | null>;
   stableKey: string;
   sourcePartId: string | null;
   type: "titulo" | "capitulo" | "parrafo" | "articulo" | "inciso" | "disposicion_transitoria" | "encabezado" | "promulgacion" | "anexo" | "agrupador";
@@ -21,6 +25,11 @@ export type SourceDocument = {
   organisms: string[];
   nodes: SourceNode[];
   warnings: string[];
+  identifiers?: { type: string; number: string }[];
+  sourceMetadata?: Record<string, unknown>;
+  attachments?: { name: string | null; mimeType: string | null; description: string | null; embedded: boolean }[];
+  coverage?: { inputParts: number; representedParts: number; inputTexts: number; representedTexts: number; unsupported: string[] };
+  validation?: DocumentValidation;
 };
 
 export type SourceReference = { kind: "idNorma" | "idLey"; value: string };

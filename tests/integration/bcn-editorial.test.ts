@@ -2,10 +2,10 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { and, eq, inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { closeDb, getDb } from "@/db/client";
-import { auditLogs, documentIdentifiers, editorialDecisions, importBatches, normVersions, norms, searchDocuments, sourceDocuments, sourcePolicies } from "@/db/schema";
+import { auditLogs, documentIdentifiers, importBatches, normVersions, norms, sourceDocuments, sourcePolicies } from "@/db/schema";
 import { approveImportBatch, publishImportBatch } from "@/ingestion/editorial/workflow";
 import { importBcnStaging } from "@/ingestion/sources/bcn-leychile/import";
 import { parseBcnNorm } from "@/ingestion/sources/bcn-leychile/parser";
@@ -44,7 +44,7 @@ describe.skipIf(!process.env.DATABASE_URL)("BCN proposals and independent editor
 
   afterAll(closeDb);
 
-  it("imports once under concurrency, preserves evidence, and publishes only after separate source approval without inventing legal dates", async () => {
+  it("imports legacy JSON once, preserves evidence and refuses incomplete publication even after source and human approval", async () => {
     const raw = JSON.stringify({ html: [{ i: 101, t: `<div class="p">Artículo único. Regla. Texto de prueba ${externalId}.</div>` }] });
     const snapshot = parseBcnNorm(raw, {
       normId: externalId, slug, type: "Ley", number: externalId, title: "Título de la representación propuesta",
@@ -88,21 +88,8 @@ describe.skipIf(!process.env.DATABASE_URL)("BCN proposals and independent editor
     expect((await db.select().from(importBatches).where(eq(importBatches.id, batch.id)))[0].status).toBe("approved");
     await writeFile(join(directory, "objects", source.storageKey!), raw);
 
-    const publications = await Promise.allSettled([publishImportBatch(batch.id, "synthetic-admin"), publishImportBatch(batch.id, "synthetic-admin")]);
-    expect(publications.filter((result) => result.status === "fulfilled")).toHaveLength(1);
-    const [oldAfter] = await db.select().from(normVersions).where(eq(normVersions.id, oldVersion.id));
-    const [newAfter] = await db.select().from(normVersions).where(eq(normVersions.id, version.id));
-    expect(oldAfter.isCurrent).toBe(false);
-    expect(oldAfter.validTo).toEqual(oldLegalEnd);
-    expect(newAfter.validFrom).toBeNull();
-    expect(newAfter.publicationStatus).toBe("published");
-    expect(newAfter.isCurrent).toBe(true);
-    expect((await db.select().from(norms).where(eq(norms.id, norm.id)))[0].title).toBe(snapshot.norm.title);
-    const indexed = await db.select().from(searchDocuments).where(and(eq(searchDocuments.normId, norm.id), eq(searchDocuments.documentType, "norm")));
-    expect(indexed).toHaveLength(1);
-    expect(indexed[0].title).toBe(snapshot.norm.title);
-    const decisions = await db.select().from(editorialDecisions).where(and(eq(editorialDecisions.batchId, batch.id), eq(editorialDecisions.action, "publish")));
-    expect(decisions).toHaveLength(1);
-    expect(decisions[0].metadata).toMatchObject({ sourceKey: syntheticSourceKey, usageEvidenceUrl: "https://example.test/synthetic-terms" });
+    await expect(publishImportBatch(batch.id, "synthetic-admin")).rejects.toThrow("Publication is blocked");
+    expect((await db.select().from(normVersions).where(eq(normVersions.id, oldVersion.id)))[0].isCurrent).toBe(true);
+    expect((await db.select().from(normVersions).where(eq(normVersions.id, version.id)))[0].publicationStatus).toBe("approved");
   }, 30000);
 });

@@ -1,3 +1,4 @@
+import { COMMERCIAL_FULLTEXT_SCOPE } from "@/ingestion/editorial/source-policy";
 import Link from "next/link";
 import { requireRole } from "@/auth/guards";
 import { getDb } from "@/db/client";
@@ -16,7 +17,7 @@ export default async function SourcesAdminPage() {
     <section className="mt-6 rounded border p-5"><h2 className="font-bold">Operación BCN · últimos 30 días</h2><p className="mt-2">Aciertos de caché: {metrics.cacheHitRatio === null ? "Sin datos" : `${Math.round(metrics.cacheHitRatio * 100)}%`} · Conversión de descubrimiento: {metrics.discoveryConversion === null ? "Sin datos" : `${Math.round(metrics.discoveryConversion * 100)}%`}</p><p className="mt-2">Propuestas pendientes: {metrics.pending.count}{metrics.pending.oldest ? ` · Más antigua: ${new Date(metrics.pending.oldest).toLocaleDateString("es-CL")}` : ""}</p><table className="mt-4 w-full text-left text-sm"><thead><tr><th>Operación / evento</th><th>Resultado</th><th>Cantidad</th><th>Media ms</th></tr></thead><tbody>{metrics.events.map((event) => <tr key={`${event.operation}:${event.kind}:${event.outcome}`}><td>{event.operation} / {event.kind}</td><td>{event.outcome}</td><td>{event.count}</td><td>{event.averageMs ?? "—"}</td></tr>)}</tbody></table></section>
     <ul className="mt-3 text-sm">{metrics.cacheByOperation.map((item) => <li key={item.operation}>{item.operation}: {item.ratio === null ? "Sin datos" : `${Math.round(item.ratio * 100)}% de aciertos`} · negativos {item.negative} · desactualizados {item.stale}</li>)}</ul>
     <p className="mt-3 text-sm">Representaciones: {metrics.changes.map((item) => `${item.change}: ${item.count}`).join(" · ") || "Sin cambios registrados"}. Un checksum distinto no acredita un cambio jurídico.</p>
-    <p className="mt-4 leading-7">Registre la evidencia que habilita la reproducción y distribución previstas para Legisdata. Una respuesta técnica exitosa de la fuente no sustituye esta revisión. Cada documento conserva su aprobación editorial independiente.</p>
+    <p className="mt-4 leading-7">Registre la evidencia que habilita la reproducción y distribución previstas para Legisdata. Una respuesta técnica exitosa de la fuente no sustituye esta revisión. Cada documento debe superar la validación de integridad y el modo editorial seleccionado.</p>
     {sourceRegistry.map((source) => {
       const policy = policies.find((item) => item.sourceKey === source.key);
       return <section key={source.key} className="mt-8 rounded-xl border border-[#dfe4eb] p-6">
@@ -26,6 +27,8 @@ export default async function SourcesAdminPage() {
         {policy?.reviewedAt ? <p className="mt-2 text-sm">Revisado: {policy.reviewedAt.toLocaleString("es-CL")} · Responsable: {policy.reviewedBy}</p> : null}
         {actor.role === "admin" ? <form action={recordSourcePolicy} className="mt-5 grid gap-3">
           <input type="hidden" name="sourceKey" value={source.key} />
+          <label className="grid gap-1 text-sm">Modo de publicación<select name="publicationMode" defaultValue={policy?.publicationMode ?? "manual_review"} className="rounded border p-2"><option value="manual_review">Revisión manual</option><option value="auto_publish_validated">Automática con validación</option></select></label>
+          <label className="grid gap-1 text-sm">Alcance del respaldo<select name="usageScope" defaultValue={policy?.usageScope ?? ""} className="rounded border p-2"><option value="">No registrado para automatización</option><option value={COMMERCIAL_FULLTEXT_SCOPE}>Conservación y redistribución comercial del texto completo</option></select></label>
           <label className="grid gap-1 text-sm">Documento de respaldo (URL)<input type="url" name="evidenceUrl" defaultValue={policy?.evidenceUrl ?? ""} required className="rounded border p-2" /></label>
           <label className="grid gap-1 text-sm">Fundamento y alcance de la decisión<textarea name="reason" minLength={10} maxLength={2000} required className="rounded border p-2" /></label>
           <label className="flex items-start gap-2 text-sm"><input type="checkbox" name="attested" className="mt-1" />He verificado las condiciones aplicables a la conservación, presentación y redistribución de este contenido en Legisdata.</label>

@@ -18,13 +18,15 @@ export default async function BatchPage({ params }: { params: Promise<{ batchId:
   const present = new Set(nodes.map((node) => node.stableKey));
   return <main className="mx-auto max-w-6xl px-6 py-10 text-[#192231]">
     <Link href="/admin/importaciones" className="text-[#173f6b] underline">Importaciones</Link>
-    <h1 className="mt-6 text-3xl font-bold text-[#173f6b]">Revisar {source.normalizedContent?.title ?? norm.title}</h1>
+    <h1 className="mt-6 text-3xl font-bold text-[#173f6b]">Revisar {source.normalizedContent?.title ?? norm?.title ?? "captura sin normalización"}</h1>
     <p className="mt-3">Estado: {batch.status} · Fuente: {source.sourceName} · Captura: {source.capturedAt.toLocaleString("es-CL")}</p>
+    {batch.error ? <p role="alert" className="mt-3">{batch.error}</p> : null}
     <p className="mt-2 break-all font-mono text-xs">SHA-256: {source.checksum}</p>
     <p className="mt-2 text-sm">Normalizador: {source.parserVersion ?? source.parser}</p>
     <a href={`/api/admin/importaciones/${batch.id}/original`} className="mt-4 inline-block text-[#173f6b] underline">Descargar original conservado</a>
     <p className="mt-4">{publicationAllowed ? "Condiciones de uso documentadas." : "Publicación bloqueada hasta documentar las condiciones de uso."} <Link href="/admin/fuentes" className="underline">Revisar fuente</Link></p>
     {source.normalizedContent?.warnings.length ? <ul className="mt-4 list-disc pl-5">{source.normalizedContent.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul> : null}
+    {detail.validations.length ? <section className="mt-5"><h2 className="font-bold">Integridad de la representación</h2><ul>{detail.validations.map((item) => <li key={item.id}>{item.severity} · {item.rule}: {item.message}</li>)}</ul></section> : null}
     <div className="mt-6 flex flex-wrap gap-4">
       {batch.status === "pending_review" ? <>
         <form action={approveEditorialBatch}><input type="hidden" name="batchId" value={batch.id} /><button className="rounded bg-[#173f6b] px-4 py-2 text-white">Aprobar revisión editorial</button></form>

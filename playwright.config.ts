@@ -18,7 +18,7 @@ export default defineConfig({
   webServer: {
     command: `${process.env.PLAYWRIGHT_USE_BUILD ? "npm run start" : "npm run dev"} -- --hostname 127.0.0.1 --port 3100`,
     url: baseURL,
-    env: { DATABASE_URL: databaseUrl, AUTH_TRUST_HOST: "true", AUTH_SECRET: process.env.AUTH_SECRET || "e2e-only-not-a-production-secret" },
+    env: { LEGISDATA_DATA_MODE: "test", DATABASE_URL: databaseUrl, AUTH_TRUST_HOST: "true", AUTH_SECRET: process.env.AUTH_SECRET || "e2e-only-not-a-production-secret" },
     // Never accidentally test a developer server running with the opposite mode.
     reuseExistingServer: false,
     timeout: 120_000,

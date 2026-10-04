@@ -15,7 +15,7 @@ export const bcnConnector: LegalSourceConnector = {
   },
   normalize(raw, observation) {
     const result = parseBcnXml(raw, observation);
-    return { ...result.identity, status: result.identity.status === "unknown" ? "desconocida" : "derogada", nodes: result.nodes, warnings: result.warnings };
+    return { ...result.identity, status: result.identity.status === "unknown" ? "desconocida" : "derogada", nodes: result.nodes, warnings: result.warnings, attachments: result.attachments, coverage: result.coverage, sourceMetadata: result.sourceMetadata };
   },
 };
 

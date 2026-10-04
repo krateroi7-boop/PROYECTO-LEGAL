@@ -26,6 +26,7 @@ async function fixture() {
     sourceIdentifier, type: "Ley", number: sourceIdentifier, title: "Documento sintético para pruebas del resolvedor",
     publishedAt: "2020-01-02", versionDate: "2024-01-02", status: "desconocida", sourceStatus: "no derogado",
     organisms: ["Organismo ficticio de pruebas"], warnings: [],
+    coverage: { inputParts: 2, representedParts: 2, inputTexts: 2, representedTexts: 2, unsupported: [] },
     nodes: [
       { stableKey: "chapter-1", sourcePartId: "1", type: "capitulo", label: "Capítulo I", title: null, text: "Capítulo sintético", position: 0, parentStableKey: null },
       { stableKey: "article-1", sourcePartId: "2", type: "articulo", label: "Artículo único", title: null, text: "Texto original sintético.", position: 1, parentStableKey: "chapter-1" },
@@ -140,7 +141,7 @@ describe.skipIf(!databaseAvailable)("on-demand resolver with PostgreSQL and dura
     expect((await persisted(f.sourceKey)).observations.map((observation) => observation.outcome)).toEqual(["not-found", "timeout", "captured"]);
   });
 
-  it.each(["missing publication metadata", "wrong source identifier", "wrong law number", "malformed representation"] as const)("rejects %s before creating source records or editorial proposals", async (problem) => {
+  it.each(["missing publication metadata", "wrong source identifier", "wrong law number", "malformed representation"] as const)("retains private evidence for %s without creating a document identity or version", async (problem) => {
     const f = await fixture();
     let reference = f.reference;
     if (problem === "missing publication metadata") f.document.publishedAt = null;
@@ -149,10 +150,11 @@ describe.skipIf(!databaseAvailable)("on-demand resolver with PostgreSQL and dura
     if (problem === "malformed representation") f.normalize.mockImplementation(() => { throw new Error("synthetic malformed payload"); });
     expect(await f.resolve(reference)).toMatchObject({ status: "unavailable", reason: "invalid_document" });
     const state = await persisted(f.sourceKey);
-    expect(state.sources).toHaveLength(0);
+    expect(state.sources).toHaveLength(1);
     expect(state.identities).toHaveLength(0);
     expect(state.versions).toHaveLength(0);
-    expect(state.batches).toHaveLength(0);
+    expect(state.batches).toHaveLength(1);
+    expect(state.batches[0]).toMatchObject({ status: "validation_failed", proposedVersionId: null });
     expect(state.observations).toHaveLength(1);
     expect(state.observations[0].outcome).toBe("invalid_document");
   });

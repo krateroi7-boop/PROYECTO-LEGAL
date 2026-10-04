@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "selectionReviewedAt": "2026-10-03",
+  "note": "Selección por identidad oficial. La completitud del XML y el permiso de distribución se validan separadamente; este manifiesto no habilita publicación.",
+  "documents": [
+    { "source": "bcn-leychile", "externalId": "172986", "name": "Código Civil", "slug": "codigo-civil", "evidenceUrl": "https://www.bcn.cl/leychile/navegar?idNorma=172986" },
+    { "source": "bcn-leychile", "externalId": "22740", "name": "Código de Procedimiento Civil", "slug": "codigo-de-procedimiento-civil", "evidenceUrl": "https://www.bcn.cl/leychile/Navegar/imprimir?idNorma=22740&idParte=8767942&idVersion=2008-08-08" },
+    { "source": "bcn-leychile", "externalId": "1984", "name": "Código Penal", "slug": "codigo-penal", "evidenceUrl": "https://www.bcn.cl/leychile/Navegar?idNorma=1984&idParte=9672736" },
+    { "source": "bcn-leychile", "externalId": "207436", "name": "Código del Trabajo", "slug": "codigo-del-trabajo", "evidenceUrl": "https://www.bcn.cl/leychile/Navegar?idNorma=207436&idVersion=2026-07-23" },
+    { "source": "bcn-leychile", "externalId": "210676", "name": "Ley 19.880", "slug": "ley-19880", "evidenceUrl": "https://www.bcn.cl/leychile/navegar?idNorma=210676" },
+    { "source": "bcn-leychile", "externalId": "276363", "name": "Ley 20.285", "slug": "ley-20285", "evidenceUrl": "https://www.bcn.cl/leychile/navegar?idNorma=276363" }
+  ]
+}

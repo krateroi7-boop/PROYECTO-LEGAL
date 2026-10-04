@@ -1,3 +1,4 @@
+import { fixtureDataEnabled } from "@/lib/data-mode";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import { publicVersionCondition } from "@/db/public-visibility";
@@ -19,7 +20,7 @@ const versionSummary = (v: { id: string; versionLabel: string; isCurrent: boolea
 
 /** Summaries only: never load every historical document to draw a version selector. */
 export async function getReaderVersions(slug: string): Promise<ReaderVersion[]> {
-  if (!process.env.DATABASE_URL) return (await getVersions(slug)).map((v) => ({ id: v.id, ...presentVersion(v), isCurrent: v.isCurrent, dateLabel: v.validFrom, validFrom: null, validTo: null, sourceVersionDate: null }));
+  if (fixtureDataEnabled()) return (await getVersions(slug)).map((v) => ({ id: v.id, ...presentVersion(v), isCurrent: v.isCurrent, dateLabel: v.validFrom, validFrom: null, validTo: null, sourceVersionDate: null }));
   const rows = await getDb().select({ id: normVersions.id, versionLabel: normVersions.versionLabel, isCurrent: normVersions.isCurrent, validFrom: normVersions.validFrom, validTo: normVersions.validTo, sourceVersionDate: normVersions.sourceVersionDate })
     .from(normVersions).innerJoin(norms, eq(norms.id, normVersions.normId))
     .where(and(eq(norms.slug, slug), publicVersionCondition()))
@@ -28,7 +29,7 @@ export async function getReaderVersions(slug: string): Promise<ReaderVersion[]> 
 }
 
 export async function getReaderDocument(slug: string, versionId?: string): Promise<ReaderDocument | undefined> {
-  if (!process.env.DATABASE_URL) {
+  if (fixtureDataEnabled()) {
     const versions = await getReaderVersions(slug);
     const version = versionId ? versions.find((v) => v.id === versionId) : versions.find((v) => v.isCurrent);
     const law = versionId ? (await getVersion(slug, versionId))?.law : getLaw(slug);
@@ -55,7 +56,7 @@ export async function getReaderDocument(slug: string, versionId?: string): Promi
 }
 
 export async function getReaderRelations(doc: { slug: string; version?: { id: string } }): Promise<ReaderRelation[]> {
-  if (!process.env.DATABASE_URL) return (await getVerifiedRelations(doc.slug)).map((r) => {
+  if (fixtureDataEnabled()) return (await getVerifiedRelations(doc.slug)).map((r) => {
     const outgoing = r.sourceSlug === doc.slug;
     return { id: r.id, type: r.type, direction: outgoing ? "outgoing" : "incoming", label: outgoing ? r.targetLabel : r.sourceLabel, href: readerUrl(outgoing ? r.targetSlug : r.sourceSlug), evidence: r.evidence, versionSpecific: false };
   });

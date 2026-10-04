@@ -70,3 +70,7 @@ El contrato actual de referencia está especializado en `idNorma`/`idLey`. Un se
 - Diez pruebas de navegación Chromium aprobadas sobre el build de producción con corpus de demostración; incluyen consulta exacta, estados de error y acceso anónimo denegado a administración. No equivalen a pruebas de proveedores OIDC reales.
 - CLI real: `Ley 19.880` devolvió una captura HTTP 200, identificador `210676`, 92 nodos, fecha de versión declarada `2026-02-05` y estado `pending_review`. La consulta siguiente devolvió `cache: hit`; no se publicó la captura ni se habilitó la política BCN.
 - El primer intento de E2E en desarrollo agotó tiempos de espera por compilación de rutas. CI utiliza `PLAYWRIGHT_USE_BUILD=1` después del build para comprobar la navegación sin esa compilación inicial.
+
+## MVP: contrato de incorporación
+
+Desde el MVP, GET del resolvedor es sólo consulta de estado; POST requiere cuenta y acción explícita. La lectura publicada sigue pública. El parser XML v3 conserva bloques y cobertura; la publicación automática exige autorización de texto completo e integridad comprobada. Véase [operación y evidencia del MVP](mvp-ingesta-publicacion.md), incluidas las condiciones pendientes de activación y la fecha futura declarada por la captura real del Código Civil.

@@ -13,6 +13,7 @@ import {
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+import type { ContentBlock } from "@/domain/legislation/content";
 import type { SourceDocument } from "@/sources/types";
 
 export const normStatus = pgEnum("norm_status", ["vigente", "modificada", "derogada", "desconocida"]);
@@ -94,6 +95,8 @@ export const normNodes = pgTable("norm_nodes", {
   label: text("label").notNull(),
   title: text("title"),
   text: text("text").notNull(),
+  sourceMetadata: jsonb("source_metadata").$type<Record<string, string | boolean | null>>(),
+  contentBlocks: jsonb("content_blocks").$type<ContentBlock[]>(),
   position: integer("position").notNull(),
 }, (table) => ({
   nodeIdx: uniqueIndex("norm_nodes_version_key_idx").on(table.versionId, table.stableKey),

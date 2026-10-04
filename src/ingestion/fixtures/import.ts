@@ -1,3 +1,4 @@
+import { fixturesAllowed } from "@/lib/data-mode";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { and, eq } from "drizzle-orm";
@@ -6,6 +7,7 @@ import { importBatches, normEvents, normNodes, normVersions, norms, searchDocume
 import { validateFixture } from "@/domain/legislation/validate";
 
 export async function importFixture(path: string) {
+  if (!fixturesAllowed()) throw new Error("FIXTURES_DISABLED");
   const raw = await readFile(path, "utf8");
   const checksum = createHash("sha256").update(raw).digest("hex");
   const fixture = validateFixture(JSON.parse(raw));

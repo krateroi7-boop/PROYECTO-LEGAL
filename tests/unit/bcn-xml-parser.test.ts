@@ -14,7 +14,7 @@ describe("BCN XML normalization", () => {
     expect(document.identity.title).toBe(parseBcnXml(raw, capture).identity.title);
     expect(document.identity.organisms).toEqual(["Órgano ficticio de pruebas Í"]);
     expect(document.warnings).not.toContain("missing-title");
-    expect(document.source.parser).toBe("bcn-leychile-xml-v2");
+    expect(document.source.parser).toBe(BCN_XML_PARSER_VERSION);
   });
   it("preserves source identity, declared dates, type and legal-status uncertainty", () => {
     const document = parseBcnXml(raw, capture);

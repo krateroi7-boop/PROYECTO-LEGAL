@@ -72,10 +72,7 @@ export async function importBcnStaging(directory: string) {
       eq(documentIdentifiers.sourceKey, "bcn-leychile"),
       eq(documentIdentifiers.externalId, metadata.normId),
     )).limit(1);
-    const [existingNorm] = await tx.select().from(norms).where(identifier ? eq(norms.id, identifier.normId) : eq(norms.slug, metadata.slug)).limit(1);
-    if (existingNorm && !identifier && (existingNorm.type !== metadata.type || existingNorm.number.replace(/\./g, "") !== metadata.number.replace(/\./g, ""))) {
-      throw new Error("BCN staging slug conflicts with a different existing document.");
-    }
+    const [existingNorm] = identifier ? await tx.select().from(norms).where(eq(norms.id, identifier.normId)).limit(1) : [];
     const norm = existingNorm ?? (await tx.insert(norms).values({
       slug: snapshot.norm.slug,
       type: metadata.type,

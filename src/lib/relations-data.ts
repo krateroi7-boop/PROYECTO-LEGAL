@@ -1,3 +1,4 @@
+import { fixtureDataEnabled } from "@/lib/data-mode";
 import type { LegalRelation } from "@/domain/relations/types";
 import { eq, inArray } from "drizzle-orm";
 import { getDb } from "@/db/client";
@@ -30,7 +31,7 @@ const relations: LegalRelation[] = [
 ];
 
 export async function getVerifiedRelations(slug: string): Promise<LegalRelation[]> {
-  if (process.env.DATABASE_URL) {
+  if (!fixtureDataEnabled()) {
     const rows = await listApiRelations(slug, "both");
     if (!rows?.length) return [];
     const slugs = [...new Set(rows.flatMap((relation) => [relation.source.normSlug, relation.target.normSlug]))];
@@ -53,11 +54,12 @@ export async function getVerifiedRelations(slug: string): Promise<LegalRelation[
 }
 
 export function getAllRelations() {
+  if (!fixtureDataEnabled()) return [];
   return relations;
 }
 
 export async function getReviewRelations() {
-  if (!process.env.DATABASE_URL) return relations;
+  if (fixtureDataEnabled()) return relations;
   const db = getDb();
   const rows = await db.select().from(legalRelations);
   const result: LegalRelation[] = [];

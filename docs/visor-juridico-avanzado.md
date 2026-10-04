@@ -156,3 +156,7 @@ Una repetición se interrumpió al cerrarse el navegador y terminar el servidor 
 - `tests/e2e/reader.spec.ts`
 - `tests/integration/public-reading.test.ts`
 - `tests/unit/reader.test.ts`
+
+## Representaciones completas del MVP
+
+El visor admite bloques seguros de texto mixto, listas y tablas en nodos XML v3. No ejecuta HTML de origen ni descarga adjuntos; las representaciones incompletas quedan privadas. Conserva compatibilidad con `text` para nodos anteriores, anchors y herramientas existentes. Los metadatos históricos se obtienen de la representación consultada. La medición pública del Código Civil real permanece pendiente de habilitación de fuente; véase [MVP](mvp-ingesta-publicacion.md).

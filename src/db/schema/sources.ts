@@ -1,4 +1,5 @@
-import { boolean, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { check, boolean, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { importBatches, norms, sourceDocuments } from "./legislation";
 import { users } from "./users";
 
@@ -6,9 +7,11 @@ export const sourcePolicies = pgTable("source_policies", {
   sourceKey: text("source_key").primaryKey(),
   publicationAllowed: boolean("publication_allowed").notNull().default(false),
   evidenceUrl: text("evidence_url"),
+  publicationMode: text("publication_mode").$type<"manual_review" | "auto_publish_validated">().notNull().default("manual_review"),
+  usageScope: text("usage_scope"),
   reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
   reviewedBy: text("reviewed_by"),
-});
+}, (table) => ({ modeCheck: check("source_policies_mode_check", sql`${table.publicationMode} in ('manual_review', 'auto_publish_validated')`) }));
 
 export const documentIdentifiers = pgTable("document_identifiers", {
   id: uuid("id").defaultRandom().primaryKey(),

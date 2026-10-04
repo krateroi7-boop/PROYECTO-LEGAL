@@ -92,6 +92,20 @@
       "when": 1790569848364,
       "tag": "0012_discovery_leases_and_review_requests",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1791034470268,
+      "tag": "0013_complete_document_representation",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1791034543512,
+      "tag": "0014_source_publication_mode",
+      "breakpoints": true
     }
   ]
 }

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { closeDb, getDb } from "@/db/client";
 import { annotations, favorites, legalRelations, normNodes, normVersions, norms, searchDocuments, sourceDocuments, sourceObservations, sourcePolicies, users } from "@/db/schema";
 import { getApiArticle, getApiNormDetail, listApiNorms, listApiRelations, listApiVersions } from "@/db/repositories/api";
@@ -39,10 +39,11 @@ describe.skipIf(!process.env.DATABASE_URL)("Public reading preserves editorial b
     actor.id = `public-reader-${run}`;
     await db.insert(users).values({ id: actor.id, name: "Public reading integration" });
     const [source] = await db.insert(sourceDocuments).values({
-      sourceName: "Fuente de prueba", sourceUrl: "https://example.org/norma", checksum: run,
+      sourceName: "Fuente de prueba", sourceKey, sourceUrl: "https://example.org/norma", checksum: run,
       parser: "integration", capturedAt: new Date("2026-01-01T00:00:00Z"),
     }).returning();
     sourceId = source.id;
+    await db.insert(sourcePolicies).values({ sourceKey, publicationAllowed: true, evidenceUrl: "https://example.org/permission", reviewedBy: actor.id, reviewedAt: new Date("2020-01-01") });
     for (const [index, currentSlug] of [slug, hiddenSlug, otherSlug].entries()) {
       const [norm] = await db.insert(norms).values({
         slug: currentSlug, type: "Ley", number: `${run}-${index}`, title: `Norma ${index}`,
@@ -56,7 +57,7 @@ describe.skipIf(!process.env.DATABASE_URL)("Public reading preserves editorial b
       { normId: normIds[0], versionLabel: "Copia publicada", validFrom: null, isCurrent: true, publicationStatus: "published", sourceDocumentId: sourceId },
       { normId: normIds[0], versionLabel: "Contenido pendiente", validFrom: new Date("2027-01-01T00:00:00Z"), publicationStatus: "pending_review" },
       { normId: normIds[1], versionLabel: "Oculta", validFrom: null, publicationStatus: "pending_review" },
-      { normId: normIds[2], versionLabel: "Publicada", validFrom: null, isCurrent: true, publicationStatus: "published" },
+      { normId: normIds[2], versionLabel: "Publicada", validFrom: null, isCurrent: true, publicationStatus: "published", sourceDocumentId: sourceId },
     ]).returning();
     [originalId, currentId, draftId] = versions.map((version) => version.id);
     const [header] = await db.insert(normNodes).values({ versionId: currentId, stableKey: "titulo-1", type: "titulo", label: "Título I", text: "", position: 0 }).returning();
@@ -66,10 +67,10 @@ describe.skipIf(!process.env.DATABASE_URL)("Public reading preserves editorial b
       { versionId: draftId, stableKey: "articulo-1", type: "articulo", label: "Artículo 1", text: "Texto pendiente de aprobación", position: 0 },
     ]).returning();
     const relations = await db.insert(legalRelations).values([
-      { sourceNormId: normIds[2], targetNormId: normIds[0], type: "cita", status: "verified", evidence: "Relación pública entrante", method: "manual" },
-      { sourceNormId: normIds[0], targetNormId: normIds[1], type: "cita", status: "verified", evidence: "No revelar norma pendiente", method: "manual" },
-      { sourceNormId: normIds[0], targetNormId: normIds[2], sourceVersionId: draftId, type: "cita", status: "verified", evidence: "No revelar versión pendiente", method: "manual" },
-      { sourceNormId: normIds[0], targetNormId: normIds[2], sourceNodeId: nodes[2].id, type: "cita", status: "verified", evidence: "No revelar nodo pendiente", method: "manual" },
+      { sourceNormId: normIds[2], targetNormId: normIds[0], type: "cita", status: "verified", evidenceSourceDocumentId: sourceId, evidence: "Relación pública entrante", method: "manual" },
+      { sourceNormId: normIds[0], targetNormId: normIds[1], type: "cita", status: "verified", evidenceSourceDocumentId: sourceId, evidence: "No revelar norma pendiente", method: "manual" },
+      { sourceNormId: normIds[0], targetNormId: normIds[2], sourceVersionId: draftId, type: "cita", status: "verified", evidenceSourceDocumentId: sourceId, evidence: "No revelar versión pendiente", method: "manual" },
+      { sourceNormId: normIds[0], targetNormId: normIds[2], sourceNodeId: nodes[2].id, type: "cita", status: "verified", evidenceSourceDocumentId: sourceId, evidence: "No revelar nodo pendiente", method: "manual" },
       { sourceNormId: normIds[0], targetNormId: normIds[2], type: "cita", status: "pending", evidence: "No revelar relación pendiente", method: "manual" },
     ]).returning();
     relationId = relations[0].id;
@@ -95,12 +96,12 @@ describe.skipIf(!process.env.DATABASE_URL)("Public reading preserves editorial b
   });
 
   it("search returns the real stableKey when it differs from the article label", async () => {
-    const [node] = await getDb().select().from(normNodes).where(eq(normNodes.versionId, originalId));
-    await getDb().insert(searchDocuments).values({ normId: normIds[0], versionId: originalId, nodeId: node.id, documentType: "node", slug, number: `${run}-0`, type: "Ley", title: "Norma pública", nodeLabel: node.label, topics: "", content: node.text });
+    const [node] = await getDb().select().from(normNodes).where(and(eq(normNodes.versionId, currentId), eq(normNodes.stableKey, "articulo-1")));
+    await getDb().insert(searchDocuments).values({ normId: normIds[0], versionId: currentId, nodeId: node.id, documentType: "node", slug, number: `${run}-0`, type: "Ley", title: "Norma pública", nodeLabel: node.label, topics: "", content: node.text });
     const [result] = await searchPersisted({ number: `${run}-0`, article: "1" });
     expect(result.node).toEqual({ stableKey: "articulo-1", label: "Artículo 1" });
-    expect(result.versionId).toBe(originalId);
-    expect((await getApiArticle(slug, result.node!.stableKey, result.versionId!))?.text).toBe("Texto original");
+    expect(result.versionId).toBe(currentId);
+    expect((await getApiArticle(slug, result.node!.stableKey, result.versionId!))?.text).toBe("Texto publicado");
   });
 
   it("rejects pending versions even when the caller knows their UUID", async () => {
@@ -158,7 +159,7 @@ describe.skipIf(!process.env.DATABASE_URL)("Public reading preserves editorial b
     expect(doc.demonstration).toBe(false);
     expect(doc.nodes.find((n) => n.stableKey === "articulo-1")?.parentStableKey).toBe("titulo-1");
     expect((await getReaderVersions(slug)).map((v) => v.id)).not.toContain(draftId);
-    const [historicalRelation] = await getDb().insert(legalRelations).values({ sourceNormId: normIds[0], sourceVersionId: originalId, targetNormId: normIds[2], type: "cita", status: "verified", evidence: "Sólo original", method: "manual" }).returning();
+    const [historicalRelation] = await getDb().insert(legalRelations).values({ sourceNormId: normIds[0], sourceVersionId: originalId, targetNormId: normIds[2], type: "cita", status: "verified", evidenceSourceDocumentId: sourceId, evidence: "Sólo original", method: "manual" }).returning();
     expect((await getReaderRelations(doc)).map((r) => r.id)).not.toContain(historicalRelation.id);
     expect((await getReaderRelations((await getReaderDocument(slug, originalId))!)).map((r) => r.id)).toContain(historicalRelation.id);
     await expect(loadReaderRelations({ slug, versionId: draftId })).rejects.toThrow("no disponible");
@@ -198,9 +199,29 @@ describe.skipIf(!process.env.DATABASE_URL)("Public reading preserves editorial b
     expect((await getReaderDocument(slug))?.checkedAt).toBe("2026-01-02T00:00:00.000Z");
   });
 
+  it("denies null, unknown and production fixture sources even for an existing published UUID", async () => {
+    const db = getDb();
+    try {
+      await db.update(sourceDocuments).set({ parser: "bcn-leychile-json-v2" }).where(eq(sourceDocuments.id, sourceId));
+      expect(await getApiNormDetail(slug, currentId)).toBeUndefined();
+      await db.update(sourceDocuments).set({ parser: "integration" }).where(eq(sourceDocuments.id, sourceId));
+      await db.update(normVersions).set({ sourceDocumentId: null }).where(eq(normVersions.id, currentId));
+      expect(await getApiNormDetail(slug, currentId)).toBeUndefined();
+      await db.update(normVersions).set({ sourceDocumentId: sourceId }).where(eq(normVersions.id, currentId));
+      await db.update(sourceDocuments).set({ sourceKey: null }).where(eq(sourceDocuments.id, sourceId));
+      expect(await getApiNormDetail(slug, currentId)).toBeUndefined();
+      await db.update(sourceDocuments).set({ parser: "local-fixture-v1" }).where(eq(sourceDocuments.id, sourceId));
+      vi.stubEnv("LEGISDATA_DATA_MODE", "production");
+      expect(await getApiNormDetail(slug, currentId)).toBeUndefined();
+    } finally {
+      vi.unstubAllEnvs();
+      await db.update(sourceDocuments).set({ parser: "integration", sourceKey }).where(eq(sourceDocuments.id, sourceId));
+      await db.update(normVersions).set({ sourceDocumentId: sourceId }).where(eq(normVersions.id, currentId));
+    }
+  });
   it("withdraws already-published versions from public reads and search when source permission is blocked", async () => {
     const db = getDb();
-    await db.update(sourceDocuments).set({ sourceKey }).where(eq(sourceDocuments.id, sourceId));
+    await db.delete(sourcePolicies).where(eq(sourcePolicies.sourceKey, sourceKey));
     expect(await getApiNormDetail(slug)).toBeUndefined();
     await db.insert(sourcePolicies).values({ sourceKey, publicationAllowed: true, evidenceUrl: "https://example.org/permission", reviewedBy: actor.id, reviewedAt: new Date("2020-01-01T00:00:00Z") });
     await db.insert(searchDocuments).values({ normId: normIds[0], versionId: currentId, documentType: "norm", slug, number: `${run}-0`, type: "Ley", title: "Norma pública", topics: "", content: "Texto publicado" });

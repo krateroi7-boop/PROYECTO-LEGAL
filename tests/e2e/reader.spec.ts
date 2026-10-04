@@ -1,31 +1,34 @@
+import { createFixtureSource } from "../helpers/public-source";
 import { expect, test, type Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { closeDb, getDb } from "@/db/client";
-import { norms, normVersions, normNodes, users, sessions } from "@/db/schema";
+import { norms, normVersions, normNodes, users, sessions, sourceDocuments } from "@/db/schema";
 
-const fixture = { slug: `reader-e2e-${randomUUID()}`, norm: "", original: "", current: "", pending: "" };
+const fixture = { slug: `reader-e2e-${randomUUID()}`, source: "", norm: "", original: "", current: "", pending: "" };
 test.beforeAll(async () => {
   if (!process.env.DATABASE_URL) return;
   const db = getDb();
   const [norm] = await db.insert(norms).values({ slug: fixture.slug, type: "Ley", number: "READER-TEST", title: "Documento sintético de lectura", shortTitle: "Prueba del visor", description: "Datos sintéticos de prueba", status: "desconocida", topics: [], publishedAt: new Date("2000-01-01"), updatedAt: new Date() }).returning();
   fixture.norm = norm.id;
+  const source = await createFixtureSource(); fixture.source = source.id;
   const versions = await db.insert(normVersions).values([
-    { normId: norm.id, versionLabel: "fixture-original-private-label", validFrom: new Date("2000-01-01"), publicationStatus: "published" },
-    { normId: norm.id, versionLabel: "fixture-current-private-label", validFrom: new Date("2020-01-01"), publicationStatus: "published", isCurrent: true },
+    { normId: norm.id, versionLabel: "fixture-original-private-label", validFrom: new Date("2000-01-01"), publicationStatus: "published", sourceDocumentId: source.id },
+    { normId: norm.id, versionLabel: "fixture-current-private-label", validFrom: new Date("2020-01-01"), publicationStatus: "published", sourceDocumentId: source.id, isCurrent: true },
     { normId: norm.id, versionLabel: "Pendiente", publicationStatus: "pending_review" },
   ]).returning();
   [fixture.original, fixture.current, fixture.pending] = versions.map((v) => v.id);
   const [chapter] = await db.insert(normNodes).values({ versionId: fixture.current, stableKey: "capitulo-1", type: "capitulo", label: "Capítulo I", text: "Encabezado de prueba", position: 0 }).returning();
   await db.insert(normNodes).values([
     { versionId: fixture.original, stableKey: "articulo-1", type: "articulo", label: "Artículo 1", text: "Texto anterior.", position: 0 },
-    { versionId: fixture.current, parentId: chapter.id, stableKey: "articulo-1", type: "articulo", label: "Artículo 1", text: "Texto actual con acción administrativa.", position: 1 },
+    { versionId: fixture.current, parentId: chapter.id, stableKey: "articulo-1", type: "articulo", label: "Artículo 1", text: "Texto actual con acción administrativa.", contentBlocks: [{ kind: "paragraph", children: [{ kind: "text", text: "Texto actual con " }, { kind: "emphasis", children: [{ kind: "text", text: "acción" }] }, { kind: "text", text: " administrativa." }] }], position: 1 },
     { versionId: fixture.current, parentId: chapter.id, stableKey: "articulo-2", type: "articulo", label: "Artículo 2", text: "Artículo agregado para comprobar versiones.", position: 2 },
     { versionId: fixture.pending, stableKey: "articulo-1", type: "articulo", label: "Artículo 1", text: "CONTENIDO PENDIENTE PRIVADO", position: 0 },
   ]);
 });
 test.afterAll(async () => {
   if (fixture.norm) await getDb().delete(norms).where(eq(norms.id, fixture.norm));
+  if (fixture.source) await getDb().delete(sourceDocuments).where(eq(sourceDocuments.id, fixture.source));
   await closeDb();
 });
 
@@ -307,4 +310,17 @@ test("reader visual states reflow across desktop, tablet and mobile", async ({ p
     await expect(page.locator("main")).not.toContainText("fixture-");
     await page.screenshot({ path: ".staging/reader-redesign/comparison.png" });
   }
+});
+
+test("mixed blocks retain search and copy across inline markup", { tag: "@postgres" }, async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.goto(`/normas/${fixture.slug}`);
+  await expect(page.locator("#articulo-1 em")).toHaveText("acción");
+  await page.getByRole("button", { name: "Buscar en esta norma", exact: true }).click();
+  await page.getByRole("textbox", { name: "Buscar dentro de la norma", exact: true }).fill("acción administrativa");
+  await expect(page.locator("[data-search-active]")).toHaveCount(1);
+  await page.getByRole("button", { name: "Cerrar búsqueda" }).click();
+  await articleAction(page, "articulo-1", "Copiar texto");
+  await expect(page.getByRole("status").filter({ hasText: "Texto copiado" })).toBeVisible();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain("Texto actual con acción administrativa.");
 });

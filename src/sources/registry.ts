@@ -1,7 +1,7 @@
 /** Capabilities are evidence records, not a promise that every provider has a uniform API. */
 export const sourceRegistry = [
   {
-    key: "bcn-leychile", name: "BCN LeyChile", editorialReviewRequired: true,
+    key: "bcn-leychile", name: "BCN LeyChile", editorialReviewRequired: "source_policy_and_integrity",
     capabilities: {
       document: { status: "documented", evidence: "https://www.leychile.cl/esquemas/accesoLeyesChilenas4.pdf" },
       metadata: { status: "experimental", evidence: "https://datos.bcn.cl/es/documentacion/consultas-sparql" },
