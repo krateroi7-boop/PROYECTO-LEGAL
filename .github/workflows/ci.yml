@@ -36,19 +36,25 @@ jobs:
       - run: npm run fixture:validate
       - run: npm run db:migrate
       - run: npm run db:import
+        env:
+          LEGISDATA_DATA_MODE: test
       - run: npm run db:check
       - run: npm test
+        env:
+          LEGISDATA_DATA_MODE: test
       - run: npm run build
       - run: npx playwright install --with-deps chromium
       - name: Browser tests — fixture instance without PostgreSQL
         run: npm run test:e2e -- --workers=2
         env:
+          LEGISDATA_DATA_MODE: test
           DATABASE_URL: ""
           AUTH_TRUST_HOST: "true"
           PLAYWRIGHT_USE_BUILD: "1"
       - run: npm run test:e2e -- --workers=2
         name: Browser tests with PostgreSQL and Auth.js session
         env:
+          LEGISDATA_DATA_MODE: test
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/legisdata
           AUTH_TRUST_HOST: "true"
           PLAYWRIGHT_USE_BUILD: "1"
