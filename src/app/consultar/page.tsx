@@ -5,6 +5,8 @@ import { findLocalExact } from "@/search/hybrid";
 import { auth } from "@/auth";
 import { readIngestionState } from "@/sources/ingestion-service";
 import { ResolutionPanel } from "@/components/legal/resolution-panel";
+import { LibraryHeader, LibraryFooter } from "@/components/library/chrome";
+import { catalogName } from "@/lib/catalog-presentation";
 
 export default async function ConsultPage({ searchParams }: { searchParams: Promise<{ q?: string; referencia?: string; discovery?: string; busqueda?: string }> }) {
   const params = await searchParams;
@@ -22,20 +24,19 @@ export default async function ConsultPage({ searchParams }: { searchParams: Prom
     else {
       try {
         known = await findLocalExact(reference) ?? { resolution: await readIngestionState(bcnConnector, reference), fresh: false };
-      } catch { error = "No fue posible consultar la persistencia. Inténtelo nuevamente más tarde."; }
+      } catch { error = "No podemos comprobar la disponibilidad ahora. Inténtalo de nuevo más tarde."; }
     }
   }
   if (!error && known?.resolution.status === "published" && known.resolution.slug) redirect(`/normas/${known.resolution.slug}`);
   const session = await auth();
-  return <main className="min-h-screen bg-[#f6f7f9] text-[#192231]">
-    <header className="border-b border-[#dfe4eb] bg-white"><div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5 lg:px-10"><Link href="/" className="text-lg font-bold text-[#173f6b]">Legisdata</Link><Link href={back} className="text-sm font-semibold text-[#526174]">Volver a resultados</Link></div></header>
-    <div className="mx-auto max-w-3xl px-6 py-10">
-      <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#d37d42]">Consulta de norma</p>
-      <h1 className="mt-3 text-3xl font-bold text-[#173f6b]">Consultar en Legisdata</h1>
-      <p className="mt-3 text-sm text-[#697789]">Fuente: BCN / LeyChile. La disponibilidad de lectura depende de la revisión editorial.</p>
-      {error ? <p role="alert" className="mt-6 rounded-xl bg-white p-6 text-[#a94c4c]">{error}</p> : null}
-      {!error && reference ? <ResolutionPanel key={`${reference.kind}:${reference.value}`} reference={reference} initial={known?.resolution} authenticated={Boolean(session?.user?.id)} discoveryId={params.discovery} /> : null}
-      <Link href={back} className="mt-8 inline-block font-semibold text-[#173f6b] underline">Buscar otra norma en Legisdata</Link>
-    </div>
-  </main>;
+  const name = reference?.kind === "idNorma" ? catalogName(bcnConnector.key, reference.value) : undefined;
+  return <main className="library-page"><LibraryHeader /><div className="library-wrap consult-content">
+    <Link href={back} className="text-sm underline">Volver a resultados</Link>
+    <p className="library-eyebrow mt-8">Biblioteca jurídica</p>
+    <h1>{name ?? "Consultar una norma"}</h1>
+    <p className="consult-intro">Consulta su disponibilidad de lectura en Legisdata o accede a la fuente oficial.</p>
+    {error ? <p role="alert" className="resolution-panel">{error}</p> : null}
+    {!error && reference ? <ResolutionPanel key={`${reference.kind}:${reference.value}`} reference={reference} initial={known?.resolution} authenticated={Boolean(session?.user?.id)} discoveryId={params.discovery} /> : null}
+    <Link href={back} className="mt-8 inline-block text-sm underline">Buscar otra norma en Legisdata</Link>
+  </div><LibraryFooter /></main>;
 }

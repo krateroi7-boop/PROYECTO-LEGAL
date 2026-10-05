@@ -53,7 +53,7 @@ test("rejects unsupported references without navigating to arbitrary sources", a
   await page.goto("/consultar?referencia=https://example.org/norma");
   await expect(page.getByRole("main").getByRole("alert")).toContainText("La referencia no es válida");
   await expect(page.getByRole("link", { name: "Leer en Legisdata" })).toHaveCount(0);
-  await page.getByRole("link", { name: "Legisdata", exact: true }).click();
+  await page.getByRole("link", { name: "Legisdata, inicio", exact: true }).click();
   await expect(page).toHaveURL("/");
 });
 

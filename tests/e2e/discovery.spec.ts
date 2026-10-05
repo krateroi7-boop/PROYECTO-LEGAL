@@ -15,13 +15,14 @@ for (const query of ["Código Civil", "codigo civil"]) {
     await page.route("**/api/v1/descubrir?*", async (route) => { await gate; await route.fulfill({ json: { data: { status: "available", cache: "hit", candidates: [candidate("999999996", "Código Civil — candidato de prueba")] } } }); });
     try {
       await page.goto(`/buscar?q=${encodeURIComponent(query)}`);
-      await expect(page.getByText("No hay publicaciones locales que coincidan con esta búsqueda.")).toBeVisible();
+      await expect(page.getByText("No hay textos disponibles en Legisdata para esta búsqueda.")).toBeVisible();
       await expect(page.getByText("Buscando más normas…")).toBeVisible();
       await expect(page.getByText("No encontramos normas que coincidan con tu búsqueda.")).toHaveCount(0);
       release();
-      await expect(page.getByText("1 coincidencia disponible para consultar.")).toBeVisible();
+      await expect(page.getByText("Encontrada, pendiente de incorporación")).toBeVisible();
       await expect(page.getByRole("heading", { name: "Código Civil — candidato de prueba", exact: true })).toBeVisible();
-      await expect(page.getByRole("link", { name: "Consultar esta norma", exact: true })).toHaveAttribute("href", /referencia=idNorma%3A999999996/);
+      await expect(page.getByRole("link", { name: "Consultar esta norma", exact: true })).toHaveCount(0);
+      await expect(page.getByRole("link", { name: "Consultar fuente oficial", exact: true })).toBeVisible();
       expect(xmlRequests).toBe(0);
     } finally { release(); }
   });
@@ -41,7 +42,7 @@ for (const reason of ["rate-limit", "source_backoff"]) {
     await page.goto("/consultar?referencia=idNorma:999999996&busqueda=codigo%20civil");
     await expect(page.getByText("No se pudo recuperar el texto desde BCN. Esto no significa que la norma no exista.")).toBeVisible();
     await expect(page.getByText(/Intente nuevamente en aproximadamente 5 minutos/)).toBeVisible();
-    await expect(page.getByRole("link", { name: "Consultar fuente BCN" })).toHaveAttribute("href", "https://www.bcn.cl/leychile/navegar?idNorma=999999996");
+    await expect(page.getByRole("link", { name: "Consultar fuente oficial" })).toHaveAttribute("href", "https://www.bcn.cl/leychile/navegar?idNorma=999999996");
     await expect(page.getByRole("button", { name: "Solicitar revisión" })).toHaveCount(0);
     await page.clock.fastForward(310000);
     await expect(page.getByText("La comprobación está tardando. Puede volver a intentarlo.")).toHaveCount(0);
@@ -59,11 +60,11 @@ test("local publications render while remote metadata is delayed, then remain re
   await page.route("**/api/v1/descubrir?*", async (route) => { await gate; await route.fulfill({ status: 503, json: { data: { status: "unavailable", candidates: [], cache: "none" } } }); });
   try {
     await page.goto("/buscar?q=procedimiento+administrativo");
-    await expect(page.getByRole("heading", { name: "Publicado en Legisdata", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Disponible en Legisdata", exact: true })).toBeVisible();
     await expect(page.getByRole("link").filter({ hasText: "19.880" }).first()).toBeVisible();
     await expect(page.getByText("Buscando más normas…")).toBeVisible();
     release();
-    await expect(page.getByText("BCN no está disponible ahora. Los resultados locales siguen disponibles.")).toBeVisible();
+    await expect(page.getByText("La fuente externa no está disponible ahora. Los textos de Legisdata siguen disponibles.")).toBeVisible();
     expect(xmlRequests).toBe(0);
     await page.getByRole("link").filter({ hasText: "19.880" }).first().click();
     await expect(page).toHaveURL(/\/normas\/ley-19880$/);
@@ -95,9 +96,9 @@ for (const [query, title, strategy] of [["Ley 19.880", "Bases de procedimientos 
     page.on("request", (request) => { if (request.url().includes("/api/v1/resolver")) xmlRequests++; });
     await page.route("**/api/v1/descubrir?*", (route) => route.fulfill({ json: { data: { status: "available", cache: "fetched", candidates: [candidate("210676", title, strategy), candidate("276363", "Otra coincidencia")], eventId: randomUUID() } } }));
     await page.goto(`/buscar?q=${encodeURIComponent(query)}`);
-    await expect(page.getByRole("heading", { name: title, exact: true })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Consultar esta norma", exact: true })).toHaveCount(2);
-    await expect(page.getByRole("link", { name: "Consultar esta norma", exact: true }).first()).toHaveAttribute("href", /referencia=idNorma%3A210676/);
+    await expect(page.getByText(title, { exact: true })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Consultar esta norma", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "Consultar fuente oficial", exact: true })).toHaveCount(2);
     expect(xmlRequests).toBe(0);
   });
 }
@@ -139,9 +140,11 @@ test("an authenticated reader requests review without publication and sees its e
     await page.route("**/api/v1/resolver?*", (route) => route.fulfill({ status: 202, json: { data: { status: "pending_review", source: "bcn-leychile", reference: { kind: "idNorma", value: "999999999" }, cache: "fetched", checkedAt: new Date().toISOString(), sourceUrl: "https://www.bcn.cl/leychile/navegar?idNorma=999999999", proposal: { id: batch.id, title: norm.title, requestable: true } } } }));
     await page.route("**/api/v1/descubrir?*", (route) => route.fulfill({ json: { data: { status: "available", cache: "fetched", candidates: [candidate("999999999", norm.title), candidate("999999998", "Otro candidato")] } } }));
     await page.goto("/buscar?q=norma+sintetica");
-    await page.getByRole("link", { name: "Consultar esta norma", exact: true }).first().click();
+    await expect(page.getByRole("link", { name: "Consultar esta norma", exact: true })).toHaveCount(0);
+    // A blocked search offers the official source. Existing private proposals keep their review-request route.
+    await page.goto("/consultar?referencia=idNorma%3A999999999&busqueda=norma+sintetica");
     await expect(page).toHaveURL(/referencia=idNorma%3A999999999/);
-    await expect(page.getByRole("heading", { name: "Norma recuperada, pendiente de revisión" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Esta norma aún no está disponible en Legisdata" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Leer en Legisdata" })).toHaveCount(0);
     await page.getByRole("button", { name: "Solicitar revisión" }).click();
     await expect(page.getByRole("status")).toContainText("registrada");

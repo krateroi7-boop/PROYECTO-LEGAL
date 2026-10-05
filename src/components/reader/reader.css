@@ -1,5 +1,5 @@
 .legal-reader {
-  --r-bg: #f7f6f2; --r-paper: #fcfbf7; --r-ink: #25323b; --r-muted: #596772; --r-line: #d5dcd9; --r-accent: #173f6b; --r-soft: #edf1f5; --r-highlight: #ffdf80;
+  --r-bg: #f8f8f4; --r-paper: #fffefa; --r-ink: #25323b; --r-muted: #596772; --r-line: #d5dcd9; --r-accent: #172f42; --r-soft: #edf1f5; --r-highlight: #ffdf80;
   color: var(--r-ink); background: var(--r-bg); min-height: 100vh; font-family: var(--font-geist-sans), sans-serif; font-size: 14px; line-height: 1.6; color-scheme: light;
 }
 .legal-reader[data-theme=dark] { --r-bg: #151e25; --r-paper: #1c2831; --r-ink: #e3e8e5; --r-muted: #b3c2c9; --r-line: #42525a; --r-accent: #a5c5eb; --r-soft: #26384b; --r-highlight: #f6cb6d; color-scheme: dark; }
